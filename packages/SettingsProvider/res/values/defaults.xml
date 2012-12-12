@@ -18,7 +18,7 @@
 -->
 <resources>
     <bool name="def_dim_screen">true</bool>
-    <integer name="def_screen_off_timeout">60000</integer>
+    <integer name="def_screen_off_timeout">-1</integer>
     <string name="def_plugged_display_1_mode">1920x1080p-60</string>
 	<bool name="def_plugged_display_1_enable">true</bool>
 	<bool name="def_plugged_display_1_mirror">true</bool>
