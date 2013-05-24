@@ -29,7 +29,21 @@ LOCAL_SHARED_LIBRARIES :=     		\
 	libstagefright_omx    			\
 	libstagefright_foundation       \
 	libgui                          \
-	libdl
+	libdl                                \
+	libstagefright_foundation               \
+	libsurfaceflinger_client                \
+	libgui                                  \
+
+ifeq ($(HAVE_FSL_IMX_CODEC),true)
+LOCAL_SHARED_LIBRARIES +=                       \
+	lib_omx_player_arm11_elinux \
+	lib_omx_osal_v2_arm11_elinux \
+	lib_omx_client_arm11_elinux \
+	lib_omx_utils_v2_arm11_elinux \
+	lib_omx_core_mgr_v2_arm11_elinux \
+	lib_omx_res_mgr_v2_arm11_elinux \
+	lib_id3_parser_arm11_elinux
+endif
 
 LOCAL_STATIC_LIBRARIES := \
         libstagefright_nuplayer                 \
@@ -42,6 +56,18 @@ LOCAL_C_INCLUDES :=                                                 \
 	$(TOP)/frameworks/base/media/libstagefright/include             \
 	$(TOP)/frameworks/base/media/libstagefright/rtsp                \
         $(TOP)/external/tremolo/Tremolo \
+
+ifeq ($(HAVE_FSL_IMX_CODEC),true)
+LOCAL_CFLAGS += -DFSL_GM_PLAYER
+endif
+
+ifeq ($(findstring x4.,x$(PLATFORM_VERSION)), x4.)
+LOCAL_CFLAGS += -DICS
+endif
+
+ifeq ($(TARGET_BOARD_PLATFORM), imx6)
+	LOCAL_CFLAGS += -DMX6X
+endif
 
 LOCAL_MODULE:= libmediaplayerservice
 

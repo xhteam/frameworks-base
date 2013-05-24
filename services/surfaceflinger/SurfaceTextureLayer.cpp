@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+/* Copyright 2009-2011 Freescale Semiconductor Inc. */
+
 #include <stdlib.h>
 #include <stdint.h>
 #include <sys/types.h>
@@ -76,6 +78,7 @@ status_t SurfaceTextureLayer::dequeueBuffer(int *buf,
         //LOGD("%s, w=%u, h=%u, format=%u, usage=%08x, effectiveUsage=%08x",
         //        __PRETTY_FUNCTION__, w, h, format, usage, effectiveUsage);
         res = SurfaceTexture::dequeueBuffer(buf, w, h, format, effectiveUsage);
+        layer->mUsage = usage;
     }
     return res;
 }

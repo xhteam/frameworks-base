@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* Copyright 2009-2011 Freescale Semiconductor Inc. */
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "AVCEncoder"
@@ -131,8 +132,8 @@ inline static void ConvertYUV420SemiPlanarToYUV420Planar(
             tempV = tempV | ((temp >> 16) & 0xFF00);
 
             // Flip U and V
-            *outcb++ = tempV;
-            *outcr++ = tempU;
+            *outcb++ = tempU;
+            *outcr++ = tempV;
         }
     }
 }

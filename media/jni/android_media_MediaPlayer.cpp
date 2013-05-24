@@ -1,6 +1,7 @@
 /*
 **
 ** Copyright 2007, The Android Open Source Project
+** Copyright 2009-2012 Freescale Semiconductor, Inc.
 **
 ** Licensed under the Apache License, Version 2.0 (the "License");
 ** you may not use this file except in compliance with the License.
@@ -42,6 +43,8 @@
 #include <surfaceflinger/Surface.h>
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
+#include <core/SkBitmap.h>
+#include <private/media/VideoFrame.h>
 
 // ----------------------------------------------------------------------------
 
@@ -54,6 +57,8 @@ struct fields_t {
     jfieldID    surface_texture;
 
     jmethodID   post_event;
+    jclass bitmapClazz;
+    jmethodID bitmapConstructor;
 };
 static fields_t fields;
 
@@ -525,6 +530,129 @@ android_media_MediaPlayer_getFrameAt(JNIEnv *env, jobject thiz, jint msec)
     return NULL;
 }
 
+static jobject android_media_MediaPlayer_captureCurrentFrame(JNIEnv *env, jobject thiz)
+{
+    LOGV("captureCurrentFrame");
+
+    sp<MediaPlayer> mp = getMediaPlayer(env, thiz);
+    if (mp == NULL ) {
+        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        return NULL;
+    }
+
+    // Call native method to retrieve a video frame
+    VideoFrame *videoFrame = NULL;
+    sp<IMemory> frameMemory = mp->captureCurrentFrame();
+    if (frameMemory != 0) {  // cast the shared structure to a VideoFrame object
+        videoFrame = static_cast<VideoFrame *>(frameMemory->pointer());
+    }
+    if (videoFrame == NULL) {
+        LOGE("captureCurrentFrame: videoFrame is a NULL pointer");
+        return NULL;
+    }
+
+    // Create a SkBitmap to hold the pixels
+    SkBitmap *bitmap = new SkBitmap();
+    if (bitmap == NULL) {
+        LOGE("captureCurrentFrame: cannot instantiate a SkBitmap object.");
+        return NULL;
+    }
+    bitmap->setConfig(SkBitmap::kRGB_565_Config, videoFrame->mDisplayWidth, videoFrame->mDisplayHeight);
+    if (!bitmap->allocPixels()) {
+        delete bitmap;
+        LOGE("failed to allocate pixel buffer");
+        return NULL;
+    }
+    {
+       uint8_t *dst = (uint8_t*)bitmap->getPixels();
+       uint8_t *src = (uint8_t*)videoFrame + sizeof(VideoFrame);
+
+       for(int i=0; i<(int)videoFrame->mDisplayHeight; i++)
+       {
+           memcpy(dst, src, videoFrame->mDisplayWidth*2);//RGB565
+
+           src += (videoFrame->mWidth*2);
+           dst += (videoFrame->mWidth*2);
+       }
+    }
+
+    // Since internally SkBitmap uses reference count to manage the reference to
+    // its pixels, it is important that the pixels (along with SkBitmap) be
+    // available after creating the Bitmap is returned to Java app.
+    return env->NewObject(fields.bitmapClazz, fields.bitmapConstructor, (int) bitmap, true, NULL, -1);
+}
+
+static void
+android_media_MediaPlayer_setVideoCrop(JNIEnv *env, jobject thiz, int Top, int Left, int Bottom,int Right)
+{
+    sp<MediaPlayer> mp = getMediaPlayer(env, thiz);
+    if (mp == NULL ) {
+        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        return ;
+    }
+    process_media_player_call( env, thiz, mp->setVideoCrop( Top,  Left, Bottom,Right), NULL, NULL );
+    return ;
+}
+
+static int
+android_media_MediaPlayer_getTrackCount(JNIEnv *env, jobject thiz)
+{
+    sp<MediaPlayer> mp = getMediaPlayer(env, thiz);
+    if (mp == NULL ) {
+        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        return 0;
+    }
+
+    int count = 0;
+    process_media_player_call( env, thiz, mp->getTrackCount(&count), NULL, NULL );
+    LOGV("getTrackCount: %d", count);
+    return count;
+}
+
+static int
+android_media_MediaPlayer_getDefaultTrack(JNIEnv *env, jobject thiz)
+{
+    sp<MediaPlayer> mp = getMediaPlayer(env, thiz);
+    if (mp == NULL ) {
+        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        return 0;
+    }
+
+    int num = 0;
+    process_media_player_call( env, thiz, mp->getDefaultTrack(&num), NULL, NULL );
+    LOGV("getDefaultTrack: %d", num);
+    return num;
+}
+
+static jobject
+android_media_MediaPlayer_getTrackName(JNIEnv *env, jobject thiz, int index)
+{
+    sp<MediaPlayer> mp = getMediaPlayer(env, thiz);
+    if (mp == NULL ) {
+        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        return NULL;
+    }
+
+    char *name = mp->getTrackName(index);
+    if(name == NULL)
+        return NULL;
+
+    LOGV("getTrackName: %s", name);
+    return env->NewStringUTF(name);
+}
+
+static void
+android_media_MediaPlayer_selectTrack(JNIEnv *env, jobject thiz, int index)
+{
+    sp<MediaPlayer> mp = getMediaPlayer(env, thiz);
+    if (mp == NULL ) {
+        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        return ;
+    }
+
+    process_media_player_call( env, thiz, mp->selectTrack(index), NULL, NULL );
+    return ;
+}
 
 // Sends the request and reply parcels to the media player via the
 // binder interface.
@@ -618,6 +746,23 @@ android_media_MediaPlayer_native_init(JNIEnv *env)
 
     fields.surface_texture = env->GetFieldID(clazz, "mNativeSurfaceTexture", "I");
     if (fields.surface_texture == NULL) {
+        return;
+    }
+    jclass surface = env->FindClass("android/view/Surface");
+    if (surface == NULL) {
+        jniThrowException(env, "java/lang/RuntimeException", "Can't find android/view/Surface");
+        return;
+    }
+
+    fields.bitmapClazz = env->FindClass("android/graphics/Bitmap");
+    if (fields.bitmapClazz == NULL) {
+        jniThrowException(env, "java/lang/RuntimeException", "Can't find android/graphics/Bitmap");
+        return;
+    }
+
+    fields.bitmapConstructor = env->GetMethodID(fields.bitmapClazz, "<init>", "(I[BZ[BI)V");
+    if (fields.bitmapConstructor == NULL) {
+        jniThrowException(env, "java/lang/RuntimeException", "Can't find Bitmap constructor");
         return;
     }
 }
@@ -755,6 +900,17 @@ android_media_MediaPlayer_getParameter(JNIEnv *env, jobject thiz, jint key, jobj
     process_media_player_call(env, thiz, mp->getParameter(key, reply), NULL, NULL );
 }
 
+static void android_media_MediaPlayer_setPlaySpeed(JNIEnv *env,  jobject thiz, jint speed)
+{
+    sp<MediaPlayer> mp = getMediaPlayer(env, thiz);
+    if (mp == NULL ) {
+        jniThrowException(env, "java/lang/IllegalStateException", NULL);
+        return;
+    }
+    LOGV("setPlaySpeed: %d", speed);
+    process_media_player_call( env, thiz, mp->setPlaySpeed(speed), NULL, NULL );
+}
+
 // ----------------------------------------------------------------------------
 
 static JNINativeMethod gMethods[] = {
@@ -768,13 +924,13 @@ static JNINativeMethod gMethods[] = {
 
     {"setDataSource",       "(Ljava/io/FileDescriptor;JJ)V",    (void *)android_media_MediaPlayer_setDataSourceFD},
     {"_setVideoSurface",    "(Landroid/view/Surface;)V",        (void *)android_media_MediaPlayer_setVideoSurface},
-    {"prepare",             "()V",                              (void *)android_media_MediaPlayer_prepare},
-    {"prepareAsync",        "()V",                              (void *)android_media_MediaPlayer_prepareAsync},
+    {"_prepare",             "()V",                              (void *)android_media_MediaPlayer_prepare},
+    {"_prepareAsync",        "()V",                              (void *)android_media_MediaPlayer_prepareAsync},
     {"_start",              "()V",                              (void *)android_media_MediaPlayer_start},
     {"_stop",               "()V",                              (void *)android_media_MediaPlayer_stop},
     {"getVideoWidth",       "()I",                              (void *)android_media_MediaPlayer_getVideoWidth},
     {"getVideoHeight",      "()I",                              (void *)android_media_MediaPlayer_getVideoHeight},
-    {"seekTo",              "(I)V",                             (void *)android_media_MediaPlayer_seekTo},
+    {"_seekTo",              "(I)V",                             (void *)android_media_MediaPlayer_seekTo},
     {"_pause",              "()V",                              (void *)android_media_MediaPlayer_pause},
     {"isPlaying",           "()Z",                              (void *)android_media_MediaPlayer_isPlaying},
     {"getCurrentPosition",  "()I",                              (void *)android_media_MediaPlayer_getCurrentPosition},
@@ -799,6 +955,13 @@ static JNINativeMethod gMethods[] = {
     {"native_pullBatteryData", "(Landroid/os/Parcel;)I",        (void *)android_media_MediaPlayer_pullBatteryData},
     {"setParameter",        "(ILandroid/os/Parcel;)Z",          (void *)android_media_MediaPlayer_setParameter},
     {"getParameter",        "(ILandroid/os/Parcel;)V",          (void *)android_media_MediaPlayer_getParameter},
+    {"captureCurrentFrame", "()Landroid/graphics/Bitmap;",      (void *)android_media_MediaPlayer_captureCurrentFrame},
+    {"setVideoCrop",        "(IIII)V",                          (void *)android_media_MediaPlayer_setVideoCrop},
+    {"getTrackCount",       "()I",                              (void *)android_media_MediaPlayer_getTrackCount},
+    {"getTrackName",        "(I)Ljava/lang/String;",            (void *)android_media_MediaPlayer_getTrackName},
+    {"getDefaultTrack",     "()I",                              (void *)android_media_MediaPlayer_getDefaultTrack},
+    {"selectTrack",         "(I)V",                             (void *)android_media_MediaPlayer_selectTrack},
+    {"setPlaySpeed",        "(I)V",                             (void *)android_media_MediaPlayer_setPlaySpeed},
 };
 
 static const char* const kClassPathName = "android/media/MediaPlayer";

@@ -14,11 +14,13 @@
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
 */
+/* Copyright 2009-2011 Freescale Semiconductor Inc. */
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "MediaScannerJNI"
 #include <utils/Log.h>
 #include <utils/threads.h>
+#include <cutils/properties.h>
 #include <media/mediascanner.h>
 #include <media/stagefright/StagefrightMediaScanner.h>
 
@@ -28,6 +30,10 @@
 
 using namespace android;
 
+#include <media/stagefright/StagefrightMediaScanner.h>
+#ifdef FSL_GM_PLAYER
+#include <media/OMXMediaScanner.h>
+#endif
 
 static const char* const kClassMediaScannerClient =
         "android/media/MediaScannerClient";
@@ -386,11 +392,30 @@ android_media_MediaScanner_native_init(JNIEnv *env)
     }
 }
 
+static MediaScanner *createMediaScanner() {
+#ifdef FSL_GM_PLAYER
+    char valueOMX[PROPERTY_VALUE_MAX];
+    if (property_get("media.omxgm.enable-scan", valueOMX, NULL)
+        && (!strcmp(valueOMX, "1") || !strcasecmp(valueOMX, "true"))) {
+        return new OMXMediaScanner;
+    }
+#endif
+#if BUILD_WITH_FULL_STAGEFRIGHT
+    char value[PROPERTY_VALUE_MAX];
+    if (property_get("media.stagefright.enable-scan", value, NULL)
+        && (!strcmp(value, "1") || !strcasecmp(value, "true"))) {
+        return new StagefrightMediaScanner;
+    }
+#endif
+
+    return NULL;
+}
+
 static void
 android_media_MediaScanner_native_setup(JNIEnv *env, jobject thiz)
 {
     LOGV("native_setup");
-    MediaScanner *mp = new StagefrightMediaScanner;
+    MediaScanner *mp = createMediaScanner();
 
     if (mp == NULL) {
         jniThrowException(env, kRunTimeException, "Out of memory");

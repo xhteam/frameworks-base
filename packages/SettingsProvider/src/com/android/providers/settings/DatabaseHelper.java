@@ -1340,9 +1340,65 @@ public class DatabaseHelper extends SQLiteOpenHelper {
                     "1".equals(SystemProperties.get("ro.kernel.qemu")) ? 1 : 0);
             loadIntegerSetting(stmt, Settings.System.SCREEN_OFF_TIMEOUT,
                     R.integer.def_screen_off_timeout);
-    
+
+            loadStringSetting(stmt, Settings.System.PLUGGED_DISPLAY_1_MODE,
+                    R.string.def_plugged_display_1_mode);
+            loadBooleanSetting(stmt, Settings.System.PLUGGED_DISPLAY_1_ENABLE,
+                    R.bool.def_plugged_display_1_enable);
+            loadBooleanSetting(stmt, Settings.System.PLUGGED_DISPLAY_1_MIRROR,
+                    R.bool.def_plugged_display_1_mirror);
+            loadBooleanSetting(stmt, Settings.System.PLUGGED_DISPLAY_1_ROTATION,
+                    R.bool.def_plugged_display_1_rotation);
+            loadIntegerSetting(stmt, Settings.System.PLUGGED_DISPLAY_1_OVERSCAN,
+                    R.integer.def_plugged_display_1_overscan);
+            loadIntegerSetting(stmt, Settings.System.PLUGGED_DISPLAY_1_COLORDEPTH,
+                    R.integer.def_plugged_display_1_colordepth);
+
+			loadStringSetting(stmt, Settings.System.PLUGGED_DISPLAY_2_MODE,
+                    R.string.def_plugged_display_2_mode);
+            loadBooleanSetting(stmt, Settings.System.PLUGGED_DISPLAY_2_ENABLE,
+                    R.bool.def_plugged_display_2_enable);
+            loadBooleanSetting(stmt, Settings.System.PLUGGED_DISPLAY_2_MIRROR,
+                    R.bool.def_plugged_display_2_mirror);
+            loadBooleanSetting(stmt, Settings.System.PLUGGED_DISPLAY_2_ROTATION,
+                    R.bool.def_plugged_display_2_rotation);
+            loadIntegerSetting(stmt, Settings.System.PLUGGED_DISPLAY_2_OVERSCAN,
+                    R.integer.def_plugged_display_2_overscan);
+            loadIntegerSetting(stmt, Settings.System.PLUGGED_DISPLAY_2_COLORDEPTH,
+                    R.integer.def_plugged_display_2_colordepth);
+
+			loadStringSetting(stmt, Settings.System.PLUGGED_DISPLAY_3_MODE,
+                    R.string.def_plugged_display_3_mode);
+            loadBooleanSetting(stmt, Settings.System.PLUGGED_DISPLAY_3_ENABLE,
+                    R.bool.def_plugged_display_3_enable);
+            loadBooleanSetting(stmt, Settings.System.PLUGGED_DISPLAY_3_MIRROR,
+                    R.bool.def_plugged_display_3_mirror);
+            loadBooleanSetting(stmt, Settings.System.PLUGGED_DISPLAY_3_ROTATION,
+                    R.bool.def_plugged_display_3_rotation);
+            loadIntegerSetting(stmt, Settings.System.PLUGGED_DISPLAY_3_OVERSCAN,
+                    R.integer.def_plugged_display_3_overscan);
+            loadIntegerSetting(stmt, Settings.System.PLUGGED_DISPLAY_3_COLORDEPTH,
+                    R.integer.def_plugged_display_3_colordepth);
+
+			loadStringSetting(stmt, Settings.System.PLUGGED_DISPLAY_4_MODE,
+                    R.string.def_plugged_display_4_mode);
+            loadBooleanSetting(stmt, Settings.System.PLUGGED_DISPLAY_4_ENABLE,
+                    R.bool.def_plugged_display_4_enable);
+            loadBooleanSetting(stmt, Settings.System.PLUGGED_DISPLAY_4_MIRROR,
+                    R.bool.def_plugged_display_4_mirror);
+            loadBooleanSetting(stmt, Settings.System.PLUGGED_DISPLAY_4_ROTATION,
+                    R.bool.def_plugged_display_4_rotation);
+            loadIntegerSetting(stmt, Settings.System.PLUGGED_DISPLAY_4_OVERSCAN,
+                    R.integer.def_plugged_display_4_overscan);
+            loadIntegerSetting(stmt, Settings.System.PLUGGED_DISPLAY_4_COLORDEPTH,
+                    R.integer.def_plugged_display_4_colordepth);
             // Set default cdma emergency tone
             loadSetting(stmt, Settings.System.EMERGENCY_TONE, 0);
+
+            // Set xec dls settings
+            loadIntegerSetting(stmt, Settings.System.XEC_DLS_CONTROL, 
+                               R.integer.def_xec_dls_control);
+	
     
             // Set default cdma call auto retry
             loadSetting(stmt, Settings.System.CALL_AUTO_RETRY, 0);
@@ -1397,6 +1453,7 @@ public class DatabaseHelper extends SQLiteOpenHelper {
 
             loadIntegerSetting(stmt, Settings.System.POINTER_SPEED,
                     R.integer.def_pointer_speed);
+
 
         } finally {
             if (stmt != null) stmt.close();
@@ -1554,6 +1611,13 @@ public class DatabaseHelper extends SQLiteOpenHelper {
 
             loadBooleanSetting(stmt, Settings.Secure.ACCESSIBILITY_SPEAK_PASSWORD,
                     R.bool.def_accessibility_speak_password);
+
+            loadSetting(stmt, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "");
+
+            //Init data stall alarm
+            loadIntegerSetting(stmt, Settings.Secure.DATA_STALL_ALARM_NON_AGGRESSIVE_DELAY_IN_MS,
+                            R.integer.def_data_stall_alarm_non_aggressive_delay);
+
         } finally {
             if (stmt != null) stmt.close();
         }

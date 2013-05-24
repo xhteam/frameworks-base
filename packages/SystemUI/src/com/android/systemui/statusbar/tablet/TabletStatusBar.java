@@ -48,6 +48,7 @@ import android.os.IBinder;
 import android.os.Message;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.os.storage.StorageManager;
 import android.text.TextUtils;
 import android.util.Slog;
 import android.view.accessibility.AccessibilityEvent;
@@ -129,6 +130,8 @@ public class TabletStatusBar extends StatusBar implements
 
     // tracking all current notifications
     private NotificationData mNotificationData = new NotificationData();
+
+    private StorageManager mStorageManager;
 
     TabletStatusBarView mStatusBarView;
     View mNotificationArea;
@@ -388,6 +391,10 @@ public class TabletStatusBar extends StatusBar implements
     @Override
     public void start() {
         super.start(); // will add the main bar view
+
+        mStorageManager = (StorageManager) mContext.getSystemService(Context.STORAGE_SERVICE);
+        mStorageManager.registerListener(
+                new com.android.systemui.usb.StorageNotification(mContext));
     }
 
     @Override
@@ -1284,8 +1291,9 @@ public class TabletStatusBar extends StatusBar implements
     public void onClickRecentButton() {
         if (DEBUG) Slog.d(TAG, "clicked recent apps; disabled=" + mDisabled);
         if ((mDisabled & StatusBarManager.DISABLE_EXPAND) == 0) {
-            int msg = (mRecentsPanel.getVisibility() == View.VISIBLE)
-                ? MSG_CLOSE_RECENTS_PANEL : MSG_OPEN_RECENTS_PANEL;
+            int msg = (mRecentsPanel.getVisibility() == View.GONE || (mRecentsPanel.getVisibility() == View.INVISIBLE))
+                ? MSG_OPEN_RECENTS_PANEL
+                : MSG_CLOSE_RECENTS_PANEL;
             mHandler.removeMessages(msg);
             mHandler.sendEmptyMessage(msg);
         }

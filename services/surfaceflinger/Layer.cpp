@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* Copyright (c) 2010 Freescale Semiconductors Inc. */
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -95,6 +96,19 @@ Layer::~Layer()
 void Layer::onFrameQueued() {
     android_atomic_inc(&mQueuedFrames);
     mFlinger->signalEvent();
+}
+
+void Layer::createOpenglContext()
+{
+    glGenTextures(1, &mTextureName);
+    mSurfaceTexture->setOpenglContext(mTextureName);
+}
+
+void Layer::destroyOpenglContext()
+{
+    mQueuedFrames = 0; 
+    mSurfaceTexture->destroyOpenglContext();
+    glDeleteTextures(1, &mTextureName);
 }
 
 // called with SurfaceFlinger::mStateLock as soon as the layer is entered
@@ -182,11 +196,28 @@ void Layer::setGeometry(hwc_layer_t* hwcl)
 
     hwcl->flags &= ~HWC_SKIP_LAYER;
 
-    // we can't do alpha-fade with the hwc HAL
+#ifdef FSL_IMX_DISPLAY
+    // we do alpha-fade with the hwc HAL
     const State& s(drawingState());
     if (s.alpha < 0xFF) {
+        hwcl->blending = mPremultipliedAlpha ?
+                       HWC_BLENDING_PREMULT : HWC_BLENDING_COVERAGE;
+    } else {
+        if (!isOpaque()) {
+            hwcl->blending = mPremultipliedAlpha ?
+                           HWC_BLENDING_PREMULT : HWC_BLENDING_COVERAGE;
+        } else {
+            hwcl->blending = HWC_BLENDING_NONE;
+        }
+     }
+    hwcl->blending |= (s.alpha << 16);
+#else
+    // we can't do alpha-fade with the hwc HAL
+     const State& s(drawingState());
+     if (s.alpha < 0xFF) {
         hwcl->flags = HWC_SKIP_LAYER;
     }
+#endif
 
     /*
      * Transformations are applied in this order:
@@ -236,6 +267,9 @@ void Layer::setPerFrameData(hwc_layer_t* hwcl) {
         // or if we ran out of memory. In that case, don't let
         // HWC handle it.
         hwcl->flags |= HWC_SKIP_LAYER;
+#ifdef FSL_IMX_DISPLAY
+        hwcl->flags |= HWC_DRAW_HOLE;
+#endif
         hwcl->handle = NULL;
     } else {
         hwcl->handle = buffer->handle;
@@ -462,6 +496,9 @@ void Layer::lockPageFlip(bool& recomputeVisibleRegions)
             }
 
             if (isFixedSize() ||
+#ifdef FSL_IMX_DISPLAY
+                isCropped() ||
+#endif
                     (bufWidth == front.requested_w &&
                     bufHeight == front.requested_h))
             {

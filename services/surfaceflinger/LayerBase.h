@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* Copyright (C) 2011 Freescale Semiconductors Inc. */
 
 #ifndef ANDROID_LAYER_BASE_H
 #define ANDROID_LAYER_BASE_H
@@ -115,7 +116,8 @@ public:
             void setOverlay(bool inOverlay);
             bool isOverlay() const;
 
-
+    virtual void createOpenglContext() {}
+    virtual void destroyOpenglContext() {}
     /**
      * draw - performs some global clipping optimizations
      * and calls onDraw().
@@ -222,6 +224,7 @@ public:
 
     int32_t  getOrientation() const { return mOrientation; }
     int32_t  getPlaneOrientation() const { return mPlaneOrientation; }
+    void clearWithOpenGL(const Region& clip) const;
     
 protected:
     const GraphicPlane& graphicPlane(int dpy) const;
@@ -229,7 +232,6 @@ protected:
 
           void clearWithOpenGL(const Region& clip, GLclampf r, GLclampf g,
                                GLclampf b, GLclampf alpha) const;
-          void clearWithOpenGL(const Region& clip) const;
           void drawWithOpenGL(const Region& clip) const;
 
           void setFiltering(bool filtering);
@@ -273,11 +275,11 @@ protected:
 
                 // atomic
     volatile    int32_t         mInvalidate;
-                
 
 public:
     // called from class SurfaceFlinger
     virtual ~LayerBase();
+    int             mUsage;
 
 private:
     LayerBase(const LayerBase& rhs);

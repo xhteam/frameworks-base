@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+/* Copyright 2010-2012 Freescale Semiconductor, Inc. */
+
 #ifndef ANDROID_SURFACE_FLINGER_H
 #define ANDROID_SURFACE_FLINGER_H
 
@@ -108,7 +110,7 @@ public:
             Transform* tr);
 
                                 GraphicPlane();
-                                ~GraphicPlane();
+        virtual                 ~GraphicPlane();
 
         bool                    initialized() const;
 
@@ -123,7 +125,7 @@ public:
         const Transform&        transform() const;
         EGLDisplay              getEGLDisplay() const;
         
-private:
+protected:
                                 GraphicPlane(const GraphicPlane&);
         GraphicPlane            operator = (const GraphicPlane&);
 
@@ -137,11 +139,52 @@ private:
         int                     mHeight;
 };
 
+#ifdef FSL_IMX_DISPLAY
+class ConfigurableGraphicPlane : public GraphicPlane
+{
+public:
+        ConfigurableGraphicPlane()
+		: mClearPlane(0), mTransactionFlags(0)
+             {}
+        ~ConfigurableGraphicPlane() {}
+
+        int getMirror();
+        int getXOverScan();
+        int getYOverScan();
+        int getKeepRate();
+        void setKeepRate(int keepRate);
+        status_t sendCommand(int operateCode, const configParam& param);
+        status_t changePlaneSize(SurfaceFlinger* sf);
+
+        void doTransaction(SurfaceFlinger* sf);
+        uint32_t getTransactionFlags(uint32_t flags);
+        uint32_t setTransactionFlags(uint32_t flags);
+        bool setParam(configParam& conParam, const configParam& param, bool setFlag);
+        bool setConfigParam(const configParam& param);
+        int initPlane(SurfaceFlinger* sf);
+        int unInitPlane(SurfaceFlinger* sf);
+        void clearPlane();
+
+public:
+        static int mTransactionReturnValue;
+        static int mUpdateVisibleRegion;
+        int mClearPlane;
+
+private:
+        ConfigurableGraphicPlane(const ConfigurableGraphicPlane&);
+        ConfigurableGraphicPlane operator = (const ConfigurableGraphicPlane&);
+
+        volatile int32_t mTransactionFlags;
+        configParam mCurrentParam;
+        configParam mConfigParam;
+};
+#endif
 // ---------------------------------------------------------------------------
 
 enum {
     eTransactionNeeded      = 0x01,
-    eTraversalNeeded        = 0x02
+    eTraversalNeeded        = 0x02,
+    eDisplayEventNeeded     = 0x04
 };
 
 class SurfaceFlinger :
@@ -215,6 +258,23 @@ public:
         }
     };
 
+public:
+    GLuint  mWormholeTexName;
+    GLuint  mProtectedTexName;
+#ifdef FSL_IMX_DISPLAY
+    void unInitContext();
+    void initContext();
+    virtual status_t configDisplay(configParam* param);
+    void setDisplayCblk(int dpy);
+    void clearDisplayCblk(int dpy);
+    int mActivePlaneIndex;
+private:
+    void handleDisplayTransaction();
+    void resizeSwapRegion();
+
+    mutable Mutex mDisplayStateLock;    
+    Condition mDisplayTransactionCV;
+#endif
 
 private:
     // DeathRecipient interface
@@ -348,7 +408,11 @@ private:
                 Vector< sp<LayerBase> > mLayersPendingRemoval;
 
                 // protected by mStateLock (but we could use another lock)
-                GraphicPlane                mGraphicPlanes[1];
+#ifdef FSL_IMX_DISPLAY
+                ConfigurableGraphicPlane    mGraphicPlanes[6];
+#else
+		GraphicPlane		    mGraphicPlanes[1];
+#endif
                 bool                        mLayersRemoved;
                 DefaultKeyedVector< wp<IBinder>, wp<Layer> > mLayerMap;
 
@@ -359,8 +423,8 @@ private:
                 // constant members (no synchronization needed for access)
                 sp<IMemoryHeap>             mServerHeap;
                 surface_flinger_cblk_t*     mServerCblk;
-                GLuint                      mWormholeTexName;
-                GLuint                      mProtectedTexName;
+                //GLuint                      mWormholeTexName;
+                //GLuint                      mProtectedTexName;
                 nsecs_t                     mBootTime;
 
                 // Can only accessed from the main thread, these members
@@ -382,6 +446,7 @@ private:
                 int                         mDebugDDMS;
                 int                         mDebugDisableHWC;
                 int                         mDebugDisableTransformHint;
+                int                         mDebugFps;
                 volatile nsecs_t            mDebugInSwapBuffers;
                 nsecs_t                     mLastSwapBufferTime;
                 volatile nsecs_t            mDebugInTransaction;
@@ -405,6 +470,10 @@ private:
 
    // only written in the main thread, only read in other threads
    volatile     int32_t                     mSecureFrameBuffer;
+#ifdef FSL_IMX_DISPLAY
+   int                                      mTopOrientation;
+#endif
+
 };
 
 // ---------------------------------------------------------------------------

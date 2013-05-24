@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2009 The Android Open Source Project
+ * Copyright (C) 2009-2012 Freescale Semiconductor, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +24,10 @@
 #include "include/AMRWBEncoder.h"
 #include "include/AVCEncoder.h"
 #include "include/M4vH263Encoder.h"
+#include "include/MP3Decoder.h"
+#include "include/VorbisDecoder.h"
+#include "include/VPXDecoder.h"
+//#include "include/VPUEncoder.h"
 
 #include "include/ESDS.h"
 
@@ -40,6 +45,7 @@
 #include <media/stagefright/OMXCodec.h>
 #include <media/stagefright/Utils.h>
 #include <utils/Vector.h>
+#include <cutils/properties.h> // for property_get
 
 #include <OMX_Audio.h>
 #include <OMX_Component.h>
@@ -71,6 +77,7 @@ static sp<MediaSource> Make##name(const sp<MediaSource> &source, const sp<MetaDa
 
 #define FACTORY_REF(name) { #name, Make##name },
 
+//FACTORY_CREATE_ENCODER(VPUEncoder)
 FACTORY_CREATE_ENCODER(AMRNBEncoder)
 FACTORY_CREATE_ENCODER(AMRWBEncoder)
 FACTORY_CREATE_ENCODER(AACEncoder)
@@ -91,7 +98,20 @@ static sp<MediaSource> InstantiateSoftwareEncoder(
         FACTORY_REF(AACEncoder)
         FACTORY_REF(AVCEncoder)
         FACTORY_REF(M4vH263Encoder)
+//        FACTORY_REF(VPUEncoder)
     };
+    LOGV("InstantiateSoftwareEncoder");
+    if(!strcmp(name, "VPUEncoder")){
+        char value[PROPERTY_VALUE_MAX];
+        if (!property_get("media.stagefright.enable-vpuenc", value, NULL)
+            || !strcmp(value, "1") || !strcasecmp(value, "true")) {
+             LOGV("Load VPU Encoder First");
+             return (*kFactoryInfo[sizeof(kFactoryInfo)/sizeof(FactoryInfo)-1].CreateFunc)(source, meta);
+        }else{
+            return NULL;
+        }
+    }
+
     for (size_t i = 0;
          i < sizeof(kFactoryInfo) / sizeof(kFactoryInfo[0]); ++i) {
         if (!strcmp(name, kFactoryInfo[i].name)) {
@@ -106,6 +126,9 @@ static sp<MediaSource> InstantiateSoftwareEncoder(
 #undef FACTORY_CREATE
 
 static const CodecInfo kDecoderInfo[] = {
+    { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.Freescale.std.video_decoder.mpeg4.hw-based" },
+    { MEDIA_MIMETYPE_VIDEO_H263, "OMX.Freescale.std.video_decoder.h263.hw-based" },
+    { MEDIA_MIMETYPE_VIDEO_AVC, "OMX.Freescale.std.video_decoder.avc.v3.hw-based" },
     { MEDIA_MIMETYPE_IMAGE_JPEG, "OMX.TI.JPEG.decode" },
 //    { MEDIA_MIMETYPE_AUDIO_MPEG, "OMX.TI.MP3.decode" },
     { MEDIA_MIMETYPE_AUDIO_MPEG, "OMX.google.mp3.decoder" },
@@ -123,6 +146,9 @@ static const CodecInfo kDecoderInfo[] = {
     { MEDIA_MIMETYPE_AUDIO_G711_MLAW, "OMX.google.g711.mlaw.decoder" },
     { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.TI.DUCATI1.VIDEO.DECODER" },
     { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.Nvidia.mp4.decode" },
+    { MEDIA_MIMETYPE_AUDIO_AAC, "AACDecoder" },
+    { MEDIA_MIMETYPE_AUDIO_G711_ALAW, "G711Decoder" },
+    { MEDIA_MIMETYPE_AUDIO_G711_MLAW, "G711Decoder" },
     { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.qcom.7x30.video.decoder.mpeg4" },
     { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.qcom.video.decoder.mpeg4" },
     { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.TI.Video.Decoder" },
@@ -136,6 +162,13 @@ static const CodecInfo kDecoderInfo[] = {
     { MEDIA_MIMETYPE_VIDEO_H263, "OMX.google.h263.decoder" },
     { MEDIA_MIMETYPE_VIDEO_AVC, "OMX.TI.DUCATI1.VIDEO.DECODER" },
     { MEDIA_MIMETYPE_VIDEO_AVC, "OMX.Nvidia.h264.decode" },
+    { MEDIA_MIMETYPE_VIDEO_MPEG4, "M4vH263Decoder" },
+//    { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.PV.mpeg4dec" },
+    { MEDIA_MIMETYPE_VIDEO_H263, "OMX.qcom.7x30.video.decoder.h263" },
+    { MEDIA_MIMETYPE_VIDEO_H263, "OMX.qcom.video.decoder.h263" },
+    { MEDIA_MIMETYPE_VIDEO_H263, "OMX.SEC.H263.Decoder" },
+    { MEDIA_MIMETYPE_VIDEO_H263, "M4vH263Decoder" },
+//    { MEDIA_MIMETYPE_VIDEO_H263, "OMX.PV.h263dec" },
     { MEDIA_MIMETYPE_VIDEO_AVC, "OMX.qcom.7x30.video.decoder.avc" },
     { MEDIA_MIMETYPE_VIDEO_AVC, "OMX.qcom.video.decoder.avc" },
     { MEDIA_MIMETYPE_VIDEO_AVC, "OMX.TI.Video.Decoder" },
@@ -148,6 +181,9 @@ static const CodecInfo kDecoderInfo[] = {
 };
 
 static const CodecInfo kEncoderInfo[] = {
+	{ MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.Freescale.std.video_encoder.mpeg4.hw-based" },
+	{ MEDIA_MIMETYPE_VIDEO_H263, "OMX.Freescale.std.video_encoder.h263.hw-based" },
+	{ MEDIA_MIMETYPE_VIDEO_AVC, "OMX.Freescale.std.video_encoder.avc.hw-based" },
     { MEDIA_MIMETYPE_AUDIO_AMR_NB, "OMX.TI.AMR.encode" },
     { MEDIA_MIMETYPE_AUDIO_AMR_NB, "AMRNBEncoder" },
     { MEDIA_MIMETYPE_AUDIO_AMR_WB, "OMX.TI.WBAMR.encode" },
@@ -155,6 +191,8 @@ static const CodecInfo kEncoderInfo[] = {
     { MEDIA_MIMETYPE_AUDIO_AAC, "OMX.TI.AAC.encode" },
     { MEDIA_MIMETYPE_AUDIO_AAC, "AACEncoder" },
     { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.TI.DUCATI1.VIDEO.MPEG4E" },
+//    { MEDIA_MIMETYPE_AUDIO_AAC, "OMX.PV.aacenc" },
+//    { MEDIA_MIMETYPE_VIDEO_MPEG4, "VPUEncoder" },
     { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.qcom.7x30.video.encoder.mpeg4" },
     { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.qcom.video.encoder.mpeg4" },
     { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.TI.Video.encoder" },
@@ -162,6 +200,8 @@ static const CodecInfo kEncoderInfo[] = {
     { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.SEC.MPEG4.Encoder" },
     { MEDIA_MIMETYPE_VIDEO_MPEG4, "M4vH263Encoder" },
     { MEDIA_MIMETYPE_VIDEO_H263, "OMX.TI.DUCATI1.VIDEO.MPEG4E" },
+//    { MEDIA_MIMETYPE_VIDEO_MPEG4, "OMX.PV.mpeg4enc" },
+//    { MEDIA_MIMETYPE_VIDEO_H263, "VPUEncoder" },
     { MEDIA_MIMETYPE_VIDEO_H263, "OMX.qcom.7x30.video.encoder.h263" },
     { MEDIA_MIMETYPE_VIDEO_H263, "OMX.qcom.video.encoder.h263" },
     { MEDIA_MIMETYPE_VIDEO_H263, "OMX.TI.Video.encoder" },
@@ -169,6 +209,8 @@ static const CodecInfo kEncoderInfo[] = {
     { MEDIA_MIMETYPE_VIDEO_H263, "OMX.SEC.H263.Encoder" },
     { MEDIA_MIMETYPE_VIDEO_H263, "M4vH263Encoder" },
     { MEDIA_MIMETYPE_VIDEO_AVC, "OMX.TI.DUCATI1.VIDEO.H264E" },
+//    { MEDIA_MIMETYPE_VIDEO_H263, "OMX.PV.h263enc" },
+//    { MEDIA_MIMETYPE_VIDEO_AVC, "VPUEncoder" },
     { MEDIA_MIMETYPE_VIDEO_AVC, "OMX.qcom.7x30.video.encoder.avc" },
     { MEDIA_MIMETYPE_VIDEO_AVC, "OMX.qcom.video.encoder.avc" },
     { MEDIA_MIMETYPE_VIDEO_AVC, "OMX.TI.Video.encoder" },
@@ -319,6 +361,13 @@ uint32_t OMXCodec::getComponentQuirks(
     }
     if (!strncmp(componentName, "OMX.qcom.7x30.video.encoder.", 28)) {
     }
+
+	if (!strncmp(componentName, "OMX.Freescale.std.video_encoder.",32))        {
+	    quirks |= kRequiresAllocateBufferOnInputPorts;
+	    quirks |= kRequiresAllocateBufferOnOutputPorts;
+	    quirks |= kDefersOutputBufferAllocation;
+	}
+
     if (!strncmp(componentName, "OMX.qcom.video.decoder.", 23)) {
         quirks |= kRequiresAllocateBufferOnOutputPorts;
         quirks |= kDefersOutputBufferAllocation;
@@ -342,6 +391,11 @@ uint32_t OMXCodec::getComponentQuirks(
         quirks |= kRequiresAllocateBufferOnInputPorts;
         quirks |= kRequiresAllocateBufferOnOutputPorts;
     }
+    else if (!strncmp(componentName, "OMX.Freescale.std.video_decoder.",32))	{
+        quirks |= kRequiresAllocateBufferOnOutputPorts;
+        quirks |= kDefersOutputBufferAllocation;
+    }
+
     else if (!strncmp(componentName, "OMX.TI.", 7)) {
         // Apparently I must not use OMX_UseBuffer on either input or
         // output ports on any of the TI components or quote:
@@ -1036,7 +1090,7 @@ void OMXCodec::setVideoInputFormat(
 
     video_def->nFrameWidth = width;
     video_def->nFrameHeight = height;
-    video_def->xFramerate = 0;      // No need for output port
+	video_def->xFramerate = (frameRate << 16);  // Q16 format
     video_def->nBitrate = bitRate;  // Q16 format
     video_def->eCompressionFormat = compressionFormat;
     video_def->eColorFormat = OMX_COLOR_FormatUnused;
@@ -1364,12 +1418,16 @@ status_t OMXCodec::setVideoOutputFormat(
     CODEC_LOGV("setVideoOutputFormat width=%ld, height=%ld", width, height);
 
     OMX_VIDEO_CODINGTYPE compressionFormat = OMX_VIDEO_CodingUnused;
+    const char *role = NULL;
     if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_AVC, mime)) {
         compressionFormat = OMX_VIDEO_CodingAVC;
+        role = "video_decoder.avc";
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_MPEG4, mime)) {
         compressionFormat = OMX_VIDEO_CodingMPEG4;
+        role = "video_decoder.mpeg4";
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_H263, mime)) {
         compressionFormat = OMX_VIDEO_CodingH263;
+        role = "video_decoder.h263";
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_VPX, mime)) {
         compressionFormat = OMX_VIDEO_CodingVPX;
     } else if (!strcasecmp(MEDIA_MIMETYPE_VIDEO_MPEG2, mime)) {
@@ -1377,6 +1435,15 @@ status_t OMXCodec::setVideoOutputFormat(
     } else {
         LOGE("Not a supported video mime type: %s", mime);
         CHECK(!"Should not be here. Not a supported video mime type.");
+    }
+
+    if (role) {
+        OMX_PARAM_COMPONENTROLETYPE CurRole;
+        InitOMXParams(&CurRole);
+        memcpy(&CurRole.cRole, role, OMX_MAX_STRINGNAME_SIZE);
+        mOMX->setParameter(
+                mNode, OMX_IndexParamStandardComponentRole,
+                &CurRole, sizeof(CurRole));
     }
 
     status_t err = setVideoPortFormatType(
@@ -1842,11 +1909,30 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
         return err;
     }
 
+    int color_fmt = HAL_PIXEL_FORMAT_YCbCr_420_SP;
+    switch(def.format.video.eColorFormat) {
+        case OMX_COLOR_FormatYUV420SemiPlanar:
+            color_fmt = HAL_PIXEL_FORMAT_YCbCr_420_SP;
+            break;
+        case OMX_COLOR_FormatYUV420Planar:
+            color_fmt = HAL_PIXEL_FORMAT_YCbCr_420_P;
+            break;
+        case OMX_COLOR_Format16bitRGB565:
+            color_fmt = HAL_PIXEL_FORMAT_RGB_565;
+            break;
+        case OMX_COLOR_FormatYUV422Planar:
+            color_fmt = HAL_PIXEL_FORMAT_YCbCr_422_P;
+            break;
+        default:
+            LOGE("Not supported color format %d by surface!", def.format.video.eColorFormat);
+            return UNKNOWN_ERROR;
+    }
+
     err = native_window_set_buffers_geometry(
             mNativeWindow.get(),
             def.format.video.nFrameWidth,
             def.format.video.nFrameHeight,
-            def.format.video.eColorFormat);
+            color_fmt);
 
     if (err != 0) {
         LOGE("native_window_set_buffers_geometry failed: %s (%d)",
@@ -1892,7 +1978,7 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
 
     LOGV("native_window_set_usage usage=0x%lx", usage);
     err = native_window_set_usage(
-            mNativeWindow.get(), usage | GRALLOC_USAGE_HW_TEXTURE | GRALLOC_USAGE_EXTERNAL_DISP);
+            mNativeWindow.get(), usage | GRALLOC_USAGE_HW_TEXTURE);
     if (err != 0) {
         LOGE("native_window_set_usage failed: %s (%d)", strerror(-err), -err);
         return err;
@@ -1910,6 +1996,7 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
     // XXX: Is this the right logic to use?  It's not clear to me what the OMX
     // buffer counts refer to - how do they account for the renderer holding on
     // to buffers?
+    minUndequeuedBufs = 0;
     if (def.nBufferCountActual < def.nBufferCountMin + minUndequeuedBufs) {
         OMX_U32 newBufferCount = def.nBufferCountMin + minUndequeuedBufs;
         def.nBufferCountActual = newBufferCount;
@@ -1983,7 +2070,9 @@ status_t OMXCodec::allocateOutputBuffersFromNativeWindow() {
     for (OMX_U32 i = cancelStart; i < cancelEnd; i++) {
         BufferInfo *info = &mPortBuffers[kPortIndexOutput].editItemAt(i);
         cancelBufferToNativeWindow(info);
-    }
+	}
+
+	initNativeWindowCrop();
 
     return err;
 }
@@ -2010,7 +2099,7 @@ OMXCodec::BufferInfo* OMXCodec::dequeueBufferFromNativeWindow() {
     if (err != 0) {
       CODEC_LOGE("dequeueBuffer failed w/ error 0x%08x", err);
 
-      setState(ERROR);
+      //setState(ERROR);
       return 0;
     }
 
@@ -2953,9 +3042,16 @@ bool OMXCodec::flushPortAsync(OMX_U32 portIndex) {
         return false;
     }
 
-    status_t err =
-        mOMX->sendCommand(mNode, OMX_CommandFlush, portIndex);
-    CHECK_EQ(err, (status_t)OK);
+	status_t err = UNKNOWN_ERROR;
+	OMX_U32 nCnt = 0;
+	while (err != OK) {
+		err = mOMX->sendCommand(mNode, OMX_CommandFlush, portIndex);
+		if (nCnt ++ == 100)
+			break;
+
+		usleep(10000);
+	}
+	CHECK_EQ(err, (status_t)OK);
 
     return true;
 }
@@ -3978,6 +4074,13 @@ status_t OMXCodec::read(
 
     while (mState != ERROR && !mNoMoreOutputData && mFilledBuffers.empty()) {
         if ((err = waitForBufferFilled_l()) != OK) {
+#if 1  //FIXME: workaround for sync issue
+            if(0==mFilledBuffers.empty())
+            {
+                CODEC_LOGE("%s: %d: wait timeout, but buffer not empty !",__FUNCTION__,__LINE__);
+            }
+            else
+#endif
             return err;
         }
     }

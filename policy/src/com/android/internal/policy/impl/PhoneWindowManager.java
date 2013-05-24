@@ -459,7 +459,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     private UEventObserver mHDMIObserver = new UEventObserver() {
         @Override
         public void onUEvent(UEventObserver.UEvent event) {
-            setHdmiPlugged("1".equals(event.get("SWITCH_STATE")));
+            setHdmiPlugged("plugin".equals(event.get("EVENT")));
         }
     };
 
@@ -478,6 +478,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                     Settings.System.ACCELEROMETER_ROTATION), false, this);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.USER_ROTATION), false, this);
+            resolver.registerContentObserver(Settings.System.getUriFor(
+                    Settings.System.XEC_DLS_CONTROL), false, this);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.SCREEN_OFF_TIMEOUT), false, this);
             resolver.registerContentObserver(Settings.System.getUriFor(
@@ -873,7 +875,19 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         int shortSizeDp = shortSize
                 * DisplayMetrics.DENSITY_DEFAULT
                 / DisplayMetrics.DENSITY_DEVICE;
-        mStatusBarCanHide = shortSizeDp < 600;
+
+        //tablet resolution width or height may define >= 480
+        //system according it to use system_bar or status_bar.
+        //and properity sys.devicy.type used to distinguish tablet and phone.
+        int standDp;
+        String deviceType = SystemProperties.get("sys.devicy.type");
+        if(! "".equals(deviceType) && deviceType.equals("tablet")) {
+            standDp = 480;
+        } else {
+            standDp = 600;
+        }
+
+        mStatusBarCanHide = shortSizeDp < standDp;
         mStatusBarHeight = mContext.getResources().getDimensionPixelSize(
                 mStatusBarCanHide
                 ? com.android.internal.R.dimen.status_bar_height
@@ -2565,17 +2579,19 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     void initializeHdmiState() {
         boolean plugged = false;
         // watch for HDMI plug messages if the hdmi switch exists
-        if (new File("/sys/devices/virtual/switch/hdmi/state").exists()) {
-            mHDMIObserver.startObserving("DEVPATH=/devices/virtual/switch/hdmi");
+        if (new File("/sys/devices/platform/mxc_hdmi/cable_state").exists()) {
+            mHDMIObserver.startObserving("DEVPATH=/devices/platform/mxc_hdmi");
 
-            final String filename = "/sys/class/switch/hdmi/state";
+            final String filename = "/sys/devices/platform/mxc_hdmi/cable_state";
             FileReader reader = null;
             try {
                 reader = new FileReader(filename);
                 char[] buf = new char[15];
                 int n = reader.read(buf);
                 if (n > 1) {
-                    plugged = 0 != Integer.parseInt(new String(buf, 0, n-1));
+                    String cableState = new String(buf, 0, n-1);
+                    plugged = cableState.contains("plugin");
+                    //plugged = 0 != Integer.parseInt(new String(buf, 0, n-1));
                 }
             } catch (IOException ex) {
                 Slog.w(TAG, "Couldn't read hdmi state from " + filename + ": " + ex);

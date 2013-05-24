@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* Copyright (C) 2011 Freescale Semiconductors Inc. */
 
 #ifndef ANDROID_LAYER_H
 #define ANDROID_LAYER_H
@@ -78,6 +79,8 @@ public:
     // LayerBaseClient interface
     virtual wp<IBinder> getSurfaceTextureBinder() const;
 
+    virtual void createOpenglContext();
+    virtual void destroyOpenglContext();
     // only for debugging
     inline const sp<GraphicBuffer>& getActiveBuffer() const { return mActiveBuffer; }
 

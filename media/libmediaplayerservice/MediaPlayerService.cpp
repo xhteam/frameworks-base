@@ -14,6 +14,7 @@
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
 */
+/* Copyright 2009-2012 Freescale Semiconductor, Inc. */
 
 // Proxy for media player implementations
 
@@ -67,7 +68,10 @@
 #include "TestPlayerStub.h"
 #include "StagefrightPlayer.h"
 #include "nuplayer/NuPlayerDriver.h"
-
+#ifdef FSL_GM_PLAYER
+#include <media/OMXPlayer.h>
+#include <media/OMXFastPlayer.h>
+#endif
 #include <OMX.h>
 
 namespace {
@@ -202,6 +206,39 @@ extmap FILE_EXTS [] =  {
         {".rtttl", SONIVOX_PLAYER},
         {".rtx", SONIVOX_PLAYER},
         {".ota", SONIVOX_PLAYER},
+};
+
+extmap OMX_PLAYER_FILE_EXTS [] =  {
+        {".avi", OMX_PLAYER},
+        {".mkv", OMX_PLAYER},
+        {".mp4", OMX_PLAYER},
+        {".m4a", OMX_PLAYER},
+        {".3gp", OMX_PLAYER},
+        {".3g2", OMX_PLAYER},
+        {".3gpp", OMX_PLAYER},
+        {".mov", OMX_PLAYER},
+        {".rmvb", OMX_PLAYER},
+        {".rm", OMX_PLAYER},
+        {".wmv", OMX_PLAYER},
+        {".asf", OMX_PLAYER},
+        {".flv", OMX_PLAYER},
+        {".mpg", OMX_PLAYER},
+        {".vob", OMX_PLAYER},
+        {".ts", OMX_PLAYER},
+        {".f4v", OMX_PLAYER},
+        {".mp3", OMX_PLAYER},
+        {".aac", OMX_PLAYER},
+        {".wma", OMX_PLAYER},
+        {".ra", OMX_PLAYER},
+        {".wav", OMX_PLAYER},
+        {".flac", OMX_PLAYER},
+        {".divx", OMX_PLAYER},
+        {".m4v", OMX_PLAYER},        
+        //{".ogg", OMX_PLAYER},   
+        {".out", OMX_PLAYER},   
+#ifdef MX6X
+        {".webm", OMX_PLAYER},   
+#endif
 };
 
 // TODO: Find real cause of Audio/Video delay in PV framework and remove this workaround
@@ -544,7 +581,21 @@ player_type getPlayerType(int fd, int64_t offset, int64_t length)
     lseek(fd, offset, SEEK_SET);
     read(fd, buf, sizeof(buf));
     lseek(fd, offset, SEEK_SET);
+#ifdef FSL_GM_PLAYER
+    char value[PROPERTY_VALUE_MAX];
+    if (property_get("media.omxgm.enable-player", value, NULL) && (!strcmp(value, "1"))) {
+        char url[128];
+        int ret = 0;
 
+        OMXPlayerType *pType = new OMXPlayerType();
+        sprintf(url, "sharedfd://%d:%lld:%lld",  fd, offset, length);
+        ret = pType->IsSupportedContent(url);
+        delete pType;
+        if(ret)
+            return (player_type)(OMX_PLAYER | (ret << 8));
+
+    }
+#endif
     long ident = *((long*)buf);
 
     // Ogg vorbis?
@@ -577,6 +628,28 @@ player_type getPlayerType(const char* url)
         return TEST_PLAYER;
     }
 
+    if (!strncasecmp("widevine://", url, 11))
+        return STAGEFRIGHT_PLAYER;
+
+#ifdef FSL_GM_PLAYER
+    int lenURL = strlen(url);
+    char value[PROPERTY_VALUE_MAX];
+    if (property_get("media.omxgm.enable-player", value, NULL) && (!strcmp(value, "1"))) {
+        if (!strncasecmp(url, "http://", 7) || !strncasecmp(url, "rtsp://", 7))
+            return OMX_PLAYER;
+
+        for (int i = 0; i < NELEM(OMX_PLAYER_FILE_EXTS); ++i) {
+            int len = strlen(OMX_PLAYER_FILE_EXTS[i].extension);
+            int start = lenURL - len;
+            if (start > 0) {
+                if (!strncasecmp(url + start, OMX_PLAYER_FILE_EXTS[i].extension, len)) {
+                    return OMX_PLAYER_FILE_EXTS[i].playertype;
+                }
+            }
+        }
+    }
+#endif
+
     if (!strncasecmp("http://", url, 7)
             || !strncasecmp("https://", url, 8)) {
         size_t len = strlen(url);
@@ -589,12 +662,21 @@ player_type getPlayerType(const char* url)
         }
     }
 
+#ifdef FSL_GM_PLAYER
+    bool useStagefrightForHTTP = false;
+    if (property_get("media.stagefright.enable-http", value, NULL)
+        && (!strcmp(value, "1") || !strcasecmp(value, "true"))) {
+        useStagefrightForHTTP = true;
+    }
+#else
     if (!strncasecmp("rtsp://", url, 7)) {
         return NU_PLAYER;
     }
-
+#endif
     // use MidiFile for MIDI extensions
+#ifndef FSL_GM_PLAYER
     int lenURL = strlen(url);
+#endif
     for (int i = 0; i < NELEM(FILE_EXTS); ++i) {
         int len = strlen(FILE_EXTS[i].extension);
         int start = lenURL - len;
@@ -612,7 +694,7 @@ static sp<MediaPlayerBase> createPlayer(player_type playerType, void* cookie,
         notify_callback_f notifyFunc)
 {
     sp<MediaPlayerBase> p;
-    switch (playerType) {
+    switch (playerType & 0xff) {
         case SONIVOX_PLAYER:
             LOGV(" create MidiFile");
             p = new MidiFile();
@@ -625,6 +707,16 @@ static sp<MediaPlayerBase> createPlayer(player_type playerType, void* cookie,
             LOGV(" create NuPlayer");
             p = new NuPlayerDriver;
             break;
+#ifdef FSL_GM_PLAYER
+        case OMX_FAST_PLAYER:
+            LOGV(" Create OMXFastPlayer.\n");
+            p = new OMXFastPlayer(playerType >> 8);
+            break;
+        case OMX_PLAYER:
+            LOGV(" Create OMXPlayer.\n");
+            p = new OMXPlayer(playerType >> 8);
+            break;
+#endif
         case TEST_PLAYER:
             LOGV("Create Test Player stub");
             p = new TestPlayerStub();
@@ -994,6 +1086,107 @@ status_t MediaPlayerService::Client::getDuration(int *msec)
     return ret;
 }
 
+sp<IMemory> MediaPlayerService::Client::captureCurrentFrame()
+{
+    LOGV("captureCurrentFrame");
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == NULL) {
+        LOGE("media player is not initialized");
+        return NULL;
+    }
+    Mutex::Autolock lock(mLock);
+    mVideoFrame.clear();
+    mVideoFrameDealer.clear();
+
+    VideoFrame *frame = NULL;
+    p->captureCurrentFrame(&frame);
+    if (frame == NULL) {
+        LOGE("failed to capture a video frame");
+        return NULL;
+    }
+    size_t size = sizeof(VideoFrame) + frame->mSize;
+    mVideoFrameDealer = new MemoryDealer(size);
+    if (mVideoFrameDealer == NULL) {
+        LOGE("failed to create MemoryDealer");
+        return NULL;
+    }
+    mVideoFrame = mVideoFrameDealer->allocate(size);
+    if (mVideoFrame == NULL) {
+        LOGE("not enough memory for VideoFrame size=%u", size);
+        mVideoFrameDealer.clear();
+        return NULL;
+    }
+    VideoFrame *frameCopy = static_cast<VideoFrame *>(mVideoFrame->pointer());
+    frameCopy->mWidth = frame->mWidth;
+    frameCopy->mHeight = frame->mHeight;
+    frameCopy->mDisplayWidth = frame->mDisplayWidth;
+    frameCopy->mDisplayHeight = frame->mDisplayHeight;
+    frameCopy->mSize = frame->mSize;
+    frameCopy->mData = (uint8_t *)frameCopy + sizeof(VideoFrame);
+    memcpy(frameCopy->mData, frame->mData, frame->mSize);
+    return mVideoFrame;
+}
+
+status_t MediaPlayerService::Client::setVideoCrop(int iTop, int iLeft, int iBottom, int iRight)
+{
+    //LOGW("MediaPlayerService::setVideoCrop");
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) return UNKNOWN_ERROR;
+    status_t ret = p->setVideoCrop(iTop, iLeft, iBottom,iRight);
+    if (ret == NO_ERROR) {
+        LOGV("[%d] setVideoCrop iTop= %d, iLeft= %d,, iBottom= %d,, iRight= %d",
+              mConnId, iTop,iLeft,iBottom,iRight);
+    } else {
+        LOGE("Error!setVideoCrop iTop= %d, iLeft= %d,, iBottom= %d,, iRight= %d,returned %d",
+             iTop,iLeft,iBottom,iRight,ret);
+    }
+    return ret;
+}
+
+status_t MediaPlayerService::Client::getTrackCount(int *count)
+{
+    *count = 0;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) return UNKNOWN_ERROR;
+    *count= p->getTrackCount();
+    LOGV("getTrackCount: %d\n", *count);
+    return NO_ERROR;
+}
+
+status_t MediaPlayerService::Client::getDefaultTrack(int *number)
+{
+    *number = 0;
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) return UNKNOWN_ERROR;
+    *number= p->getDefaultTrack();
+    LOGV("getDefaultTrack: %d\n", *number);
+    return NO_ERROR;
+}
+
+char* MediaPlayerService::Client::getTrackName(int index)
+{
+    LOGV("getTrackName of track %d\n", index);
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) return NULL;
+    return p->getTrackName(index);
+}
+
+status_t MediaPlayerService::Client::selectTrack(int index)
+{
+    LOGV("selectTrack of track %d\n", index);
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) return UNKNOWN_ERROR;
+    return p->selectTrack(index);
+}
+
+status_t MediaPlayerService::Client::setPlaySpeed(int speed)
+{
+    LOGV("set play speed to %d\n", speed);
+    sp<MediaPlayerBase> p = getPlayer();
+    if (p == 0) return UNKNOWN_ERROR;
+    return p->setPlaySpeed(speed);
+}
+
 status_t MediaPlayerService::Client::seekTo(int msec)
 {
     LOGV("[%d] seekTo(%d)", mConnId, msec);
@@ -1250,6 +1443,98 @@ sp<IMemory> MediaPlayerService::decode(int fd, int64_t offset, int64_t length, u
 Exit:
     if (player != 0) player->reset();
     ::close(fd);
+    return mem;
+}
+
+/*
+ * Avert your eyes, ugly hack ahead.
+ * The following is to support music visualizations.
+ */
+
+static const int NUMVIZBUF = 32;
+static const int VIZBUFFRAMES = 1024;
+static const int BUFTIMEMSEC = NUMVIZBUF * VIZBUFFRAMES * 1000 / 44100;
+static const int TOTALBUFTIMEMSEC = NUMVIZBUF * BUFTIMEMSEC;
+
+static bool gotMem = false;
+static sp<MemoryHeapBase> heap;
+static sp<MemoryBase> mem[NUMVIZBUF];
+static uint64_t endTime;
+static uint64_t lastReadTime;
+static uint64_t lastWriteTime;
+static int writeIdx = 0;
+
+static void allocVizBufs() {
+    if (!gotMem) {
+        heap = new MemoryHeapBase(NUMVIZBUF * VIZBUFFRAMES * 2, 0, "snooper");
+        for (int i=0;i<NUMVIZBUF;i++) {
+            mem[i] = new MemoryBase(heap, VIZBUFFRAMES * 2 * i, VIZBUFFRAMES * 2);
+        }
+        endTime = 0;
+        gotMem = true;
+    }
+}
+
+
+/*
+ * Get a buffer of audio data that is about to be played.
+ * We don't synchronize this because in practice the writer
+ * is ahead of the reader, and even if we did happen to catch
+ * a buffer while it's being written, it's just a visualization,
+ * so no harm done.
+ */
+static sp<MemoryBase> getVizBuffer() {
+
+    allocVizBufs();
+
+    lastReadTime = uptimeMillis();
+
+    // if there is no recent buffer (yet), just return empty handed
+    if (lastWriteTime + TOTALBUFTIMEMSEC < lastReadTime) {
+        //LOGI("@@@@    no audio data to look at yet: %d + %d < %d", (int)lastWriteTime, TOTALBUFTIMEMSEC, (int)lastReadTime);
+        return NULL;
+    }
+
+    int timedelta = endTime - lastReadTime;
+    if (timedelta < 0) timedelta = 0;
+    int framedelta = timedelta * 44100 / 1000;
+    int headIdx = (writeIdx - framedelta) / VIZBUFFRAMES - 1;
+    while (headIdx < 0) {
+        headIdx += NUMVIZBUF;
+    }
+    return mem[headIdx];
+}
+
+// Append the data to the vizualization buffer
+static void makeVizBuffers(const char *data, int len, uint64_t time) {
+
+    allocVizBufs();
+
+    uint64_t startTime = time;
+    const int frameSize = 4; // 16 bit stereo sample is 4 bytes
+    int offset = writeIdx;
+    int maxoff = heap->getSize() / 2; // in shorts
+    short *base = (short*)heap->getBase();
+    short *src = (short*)data;
+    while (len > 0) {
+
+        // Degrade quality by mixing to mono and clearing the lowest 3 bits.
+        // This should still be good enough for a visualization
+        base[offset++] = ((int(src[0]) + int(src[1])) >> 1) & ~0x7;
+        src += 2;
+        len -= frameSize;
+        if (offset >= maxoff) {
+            offset = 0;
+        }
+    }
+    writeIdx = offset;
+    endTime = time + (len / frameSize) / 44;
+    //LOGI("@@@ stored buffers from %d to %d", uint32_t(startTime), uint32_t(time));
+}
+
+sp<IMemory> MediaPlayerService::snoop()
+{
+    sp<MemoryBase> mem = getVizBuffer();
     return mem;
 }
 

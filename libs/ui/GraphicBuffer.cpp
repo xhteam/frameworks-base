@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2007 The Android Open Source Project
+ * Copyright (C) 2012 Freescale Semiconductor, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +30,8 @@
 #include <ui/PixelFormat.h>
 
 #include <pixelflinger/pixelflinger.h>
+#include <binder/Binder.h>
+#include <surfaceflinger/IGraphicBufferAlloc.h>
 
 namespace android {
 
@@ -46,6 +49,7 @@ GraphicBuffer::GraphicBuffer()
     format = 
     usage  = 0;
     handle = NULL;
+    mRemoteBuffer = 0;
 }
 
 GraphicBuffer::GraphicBuffer(uint32_t w, uint32_t h, 
@@ -60,6 +64,7 @@ GraphicBuffer::GraphicBuffer(uint32_t w, uint32_t h,
     usage  = 0;
     handle = NULL;
     mInitCheck = initSize(w, h, reqFormat, reqUsage);
+    mRemoteBuffer = 0;
 }
 
 GraphicBuffer::GraphicBuffer(uint32_t w, uint32_t h,
@@ -75,6 +80,7 @@ GraphicBuffer::GraphicBuffer(uint32_t w, uint32_t h,
     format = inFormat;
     usage  = inUsage;
     handle = inHandle;
+    mRemoteBuffer = 0;
 }
 
 GraphicBuffer::GraphicBuffer(ANativeWindowBuffer* buffer, bool keepOwnership)
@@ -88,6 +94,7 @@ GraphicBuffer::GraphicBuffer(ANativeWindowBuffer* buffer, bool keepOwnership)
     format = buffer->format;
     usage  = buffer->usage;
     handle = buffer->handle;
+    mRemoteBuffer = 0;
 }
 
 GraphicBuffer::~GraphicBuffer()

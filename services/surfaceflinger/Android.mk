@@ -20,6 +20,14 @@ LOCAL_SRC_FILES:= \
 LOCAL_CFLAGS:= -DLOG_TAG=\"SurfaceFlinger\"
 LOCAL_CFLAGS += -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES
 
+ifeq ($(HAVE_FSL_IMX_IPU),true)
+LOCAL_CFLAGS += -DFSL_IMX_DISPLAY
+else ifeq ($(HAVE_FSL_IMX_GPU3D),true)
+LOCAL_CFLAGS += -DFSL_IMX_DISPLAY
+else ifeq ($(HAVE_FSL_IMX_GPU2D),true)
+LOCAL_CFLAGS += -DFSL_IMX_DISPLAY
+endif
+
 ifeq ($(TARGET_BOARD_PLATFORM), omap3)
 	LOCAL_CFLAGS += -DNO_RGBX_8888
 endif
@@ -42,6 +50,13 @@ LOCAL_SHARED_LIBRARIES := \
 	libui \
 	libgui
 
+ifeq ($(HAVE_FSL_IMX_IPU),true)
+LOCAL_SHARED_LIBRARIES += libfsl_xmltool
+else ifeq ($(HAVE_FSL_IMX_GPU3D),true)
+LOCAL_SHARED_LIBRARIES += libfsl_xmltool
+else ifeq ($(HAVE_FSL_IMX_GPU2D),true)
+LOCAL_SHARED_LIBRARIES += libfsl_xmltool
+endif
 # this is only needed for DDMS debugging
 LOCAL_SHARED_LIBRARIES += libdvm libandroid_runtime
 
@@ -49,6 +64,7 @@ LOCAL_C_INCLUDES := \
 	$(call include-path-for, corecg graphics)
 
 LOCAL_C_INCLUDES += hardware/libhardware/modules/gralloc
+LOCAL_C_INCLUDES += external/expat/lib
 
 LOCAL_MODULE:= libsurfaceflinger
 

@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2007 The Android Open Source Project
+ * Copyright (C) 2010-2012 Freescale Semiconductor, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -58,6 +60,7 @@
 
 #include <private/surfaceflinger/SharedBufferStack.h>
 
+#include <hardware/XmlTool.h>
 /* ideally AID_GRAPHICS would be in a semi-public header
  * or there would be a way to map a user/group name to its id
  */
@@ -67,7 +70,7 @@
 
 #define EGL_VERSION_HW_ANDROID  0x3143
 
-#define DISPLAY_COUNT       1
+#define DISPLAY_COUNT       NUM_DISPLAY_MAX
 
 namespace android {
 // ---------------------------------------------------------------------------
@@ -81,6 +84,9 @@ const String16 sDump("android.permission.DUMP");
 
 SurfaceFlinger::SurfaceFlinger()
     :   BnSurfaceComposer(), Thread(false),
+#ifdef FSL_IMX_DISPLAY
+        mActivePlaneIndex(0),
+#endif
         mTransactionFlags(0),
         mTransationPending(false),
         mLayersRemoved(false),
@@ -93,6 +99,7 @@ SurfaceFlinger::SurfaceFlinger()
         mDebugDDMS(0),
         mDebugDisableHWC(0),
         mDebugDisableTransformHint(0),
+	mDebugFps(0),
         mDebugInSwapBuffers(0),
         mLastSwapBufferTime(0),
         mDebugInTransaction(0),
@@ -116,6 +123,8 @@ void SurfaceFlinger::init()
 
     property_get("debug.sf.showbackground", value, "0");
     mDebugBackground = atoi(value);
+    property_get("debug.sf.showfps", value, "0");
+    mDebugFps = atoi(value);
 
     property_get("debug.sf.ddms", value, "0");
     mDebugDDMS = atoi(value);
@@ -126,6 +135,7 @@ void SurfaceFlinger::init()
     LOGI_IF(mDebugRegion,       "showupdates enabled");
     LOGI_IF(mDebugBackground,   "showbackground enabled");
     LOGI_IF(mDebugDDMS,         "DDMS debugging enabled");
+    LOGI_IF(mDebugFps,		    "showfps enabled");
 }
 
 SurfaceFlinger::~SurfaceFlinger()
@@ -168,6 +178,478 @@ GraphicPlane& SurfaceFlinger::graphicPlane(int dpy)
         const_cast<SurfaceFlinger const *>(this)->graphicPlane(dpy));
 }
 
+static inline uint16_t pack565(int r, int g, int b) {
+    return (r<<11)|(g<<5)|b;
+}
+
+#ifdef FSL_IMX_DISPLAY
+void SurfaceFlinger::unInitContext()
+{
+    glDeleteTextures(1, &mWormholeTexName);
+    glDeleteTextures(1, &mProtectedTexName);
+
+    const LayerVector& currentLayers(mCurrentState.layersSortedByZ);
+    size_t count = currentLayers.size();
+    sp<LayerBase> const* layers = currentLayers.array();
+    for (size_t i=0 ; i<count ; i++) {
+        const sp<LayerBase>& layer(layers[i]);
+        layer->destroyOpenglContext();
+    }
+}
+
+void SurfaceFlinger::initContext()
+{
+    const GraphicPlane& plane(graphicPlane(0));
+    const DisplayHardware& hw = plane.displayHardware();
+
+    const uint32_t w = hw.getWidth();
+    const uint32_t h = hw.getHeight();
+    // Initialize OpenGL|ES
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnable(GL_SCISSOR_TEST);
+    glShadeModel(GL_FLAT);
+    glDisable(GL_DITHER);
+    glDisable(GL_CULL_FACE);
+
+    const uint16_t g0 = pack565(0x0F,0x1F,0x0F);
+    const uint16_t g1 = pack565(0x17,0x2f,0x17);
+    const uint16_t wormholeTexData[4] = { g0, g1, g1, g0 };
+    glGenTextures(1, &mWormholeTexName);
+    glBindTexture(GL_TEXTURE_2D, mWormholeTexName);
+    glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 2, 2, 0,
+            GL_RGB, GL_UNSIGNED_SHORT_5_6_5, wormholeTexData);
+
+    const uint16_t protTexData[] = { pack565(0x03, 0x03, 0x03) };
+    glGenTextures(1, &mProtectedTexName);
+    glBindTexture(GL_TEXTURE_2D, mProtectedTexName);
+    glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameterx(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1, 1, 0,
+            GL_RGB, GL_UNSIGNED_SHORT_5_6_5, protTexData);
+
+    glViewport(0, 0, w, h);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    // put the origin in the left-bottom corner
+    glOrthof(0, w, 0, h, 0, 1); // l=0, r=w ; b=0, t=h
+
+    const LayerVector& currentLayers(mCurrentState.layersSortedByZ);
+    size_t count = currentLayers.size();
+    sp<LayerBase> const* layers = currentLayers.array();
+    for (size_t i=0 ; i<count ; i++) {
+        const sp<LayerBase>& layer(layers[i]);
+        layer->createOpenglContext();
+    }
+}
+
+int ConfigurableGraphicPlane::mTransactionReturnValue = 0;
+int ConfigurableGraphicPlane::mUpdateVisibleRegion = 0;
+
+int ConfigurableGraphicPlane::initPlane(SurfaceFlinger* sf)
+{
+    DisplayHardware* hw = NULL;
+    ConfigurableGraphicPlane::mUpdateVisibleRegion = 1;
+    if(mCurrentParam.displayId != 0)
+        hw = new DisplayHardware(sf, mCurrentParam);
+    else
+        hw = new DisplayHardware(sf, mCurrentParam.displayId);
+    setDisplayHardware(hw);
+    const DisplayHardware& dh(sf->graphicPlane(0).displayHardware());
+    dh.makeCurrent();
+
+    return NO_ERROR;
+}
+
+int ConfigurableGraphicPlane::unInitPlane(SurfaceFlinger* sf)
+{
+    delete mHw;
+    mHw = NULL;
+    if(sf->graphicPlane(0).initialized()) {
+        const DisplayHardware& dh(sf->graphicPlane(0).displayHardware());
+        dh.makeCurrent();
+    }
+    ConfigurableGraphicPlane::mUpdateVisibleRegion = 1;
+
+    return NO_ERROR;
+}
+
+void ConfigurableGraphicPlane::clearPlane()
+{
+    mCurrentParam.operateCode = OPERATE_CODE_CHANGE | OPERATE_CODE_CHANGE_OVERSCAN;
+    mHw->sendCommand(mCurrentParam.operateCode, mCurrentParam);
+    mHw->intialized = 1;
+}
+
+status_t ConfigurableGraphicPlane::sendCommand(int operateCode, const configParam& param)
+{
+    int err = NO_ERROR;
+
+    ConfigurableGraphicPlane::mUpdateVisibleRegion = 1;
+    if(param.operateCode & OPERATE_CODE_CHANGE_ROTATION) {
+        mClearPlane = 1;
+        return setOrientation(param.rotation);
+    }
+
+    if(param.operateCode & OPERATE_CODE_CHANGE_OVERSCAN) {
+        mClearPlane = 1;
+        return err;//mHw->sendCommand(operateCode, param);
+    }
+
+    if(param.operateCode & OPERATE_CODE_CHANGE_KEEPRATE) {
+        mClearPlane = 1;
+        return err;
+    }
+
+    return BAD_VALUE;
+}
+
+status_t ConfigurableGraphicPlane::changePlaneSize(SurfaceFlinger* sf)
+{
+    int err = NO_ERROR;
+    if(mCurrentParam.operateCode & OPERATE_CODE_CHANGE_RESOLUTION ||
+               mCurrentParam.operateCode & OPERATE_CODE_CHANGE_COLORDEPTH) {
+
+        if(mCurrentParam.operateCode & OPERATE_CODE_CHANGE_RESOLUTION) {
+            mCurrentParam.xOverScan = mConfigParam.xOverScan = 0;
+            mConfigParam.yOverScan = mCurrentParam.yOverScan = 0;
+            mCurrentParam.keepRate = mConfigParam.keepRate = SETTING_MODE_FULL_SCREEN;
+        }
+
+        mCurrentParam.operateCode = OPERATE_CODE_ENABLE;
+        sf->clearDisplayCblk(mCurrentParam.displayId);
+
+        if(mCurrentParam.displayId == 0) {
+            sf->unInitContext();
+        }
+        err = unInitPlane(sf);
+        if(err != NO_ERROR) {
+            LOGE("<%s, %d> unInitPlane %d failed!", __FUNCTION__, __LINE__, mCurrentParam.displayId);
+            return err;
+        }
+
+        err = initPlane(sf);
+        if(err != NO_ERROR) {
+            LOGE("<%s, %d> initPlane %d failed!", __FUNCTION__, __LINE__, mCurrentParam.displayId);
+            return err;
+        }
+        sf->setDisplayCblk(mCurrentParam.displayId);
+
+        if(mCurrentParam.displayId == 0) {
+            sf->initContext();
+        }
+
+        return err;
+    }
+    else {
+        return sendCommand(mCurrentParam.operateCode, mCurrentParam);
+    }
+}
+
+int ConfigurableGraphicPlane::getMirror()
+{
+    return mCurrentParam.mirror;
+}
+
+int ConfigurableGraphicPlane::getXOverScan()
+{
+    return mCurrentParam.xOverScan;
+}
+
+int ConfigurableGraphicPlane::getYOverScan()
+{
+    return mCurrentParam.yOverScan;
+}
+
+int ConfigurableGraphicPlane::getKeepRate()
+{
+    return mCurrentParam.keepRate;
+}
+
+void ConfigurableGraphicPlane::setKeepRate(int keepRate)
+{
+    mConfigParam.keepRate = mCurrentParam.keepRate = keepRate;
+}
+
+bool ConfigurableGraphicPlane::setConfigParam(const configParam& param)
+{
+    return setParam(mConfigParam, param, true);
+}
+
+bool ConfigurableGraphicPlane::setParam(configParam& conParam, const configParam& param, bool setFlag)
+{
+    bool change = false;
+    int operation = param.operateCode ;
+
+    if(operation & OPERATE_CODE_ENABLE) {
+        conParam.mode = param.mode;
+        conParam.rotation = param.rotation;
+        conParam.xOverScan = param.xOverScan;
+        conParam.yOverScan = param.yOverScan;
+        conParam.mirror = param.mirror;
+        conParam.colorDepth = param.colorDepth;
+        conParam.keepRate = param.keepRate;
+        change = true;
+    }
+
+    if(operation & OPERATE_CODE_DISABLE) {
+        change = true;
+    }
+
+    if(operation & OPERATE_CODE_CHANGE_RESOLUTION && conParam.mode != param.mode) {
+        conParam.mode = param.mode;
+        change = true;
+    }
+
+    if(operation & OPERATE_CODE_CHANGE_ROTATION && conParam.rotation != param.rotation) {
+        conParam.rotation = param.rotation;
+        change = true;
+    }
+
+    if(operation & OPERATE_CODE_CHANGE_OVERSCAN && (conParam.xOverScan != param.xOverScan ||
+                       conParam.yOverScan != param.yOverScan)) {
+        conParam.xOverScan = param.xOverScan;
+        conParam.yOverScan = param.yOverScan;
+        change = true;
+    }
+
+    if(operation & OPERATE_CODE_CHANGE_MIRROR && conParam.mirror != param.mirror) {
+        conParam.mirror = param.mirror;
+        change = true;
+    }
+
+    if(operation & OPERATE_CODE_CHANGE_COLORDEPTH && conParam.colorDepth != param.colorDepth) {
+        conParam.colorDepth = param.colorDepth;
+        change = true;
+    }
+
+    if(operation & OPERATE_CODE_CHANGE_KEEPRATE && conParam.keepRate != param.keepRate) {
+        conParam.keepRate = param.keepRate;
+        change = true;
+    }
+
+    if(change) {
+        conParam.displayId = param.displayId;
+        conParam.operateCode = param.operateCode;
+        if(setFlag)
+            setTransactionFlags(eDisplayEventNeeded);
+    }
+
+    return change;
+}
+
+void ConfigurableGraphicPlane::doTransaction(SurfaceFlinger* sf)
+{
+    int err = NO_ERROR;
+    setParam(mCurrentParam, mConfigParam, false);
+    switch(mCurrentParam.operateCode & 0xf000) {
+        case OPERATE_CODE_ENABLE:
+            if(mCurrentParam.displayId == 0) {
+                LOGE("<%s, %d> the primary display exists!", __FUNCTION__, __LINE__);
+                mTransactionReturnValue = BAD_VALUE;
+                return;
+            }
+
+            if(initialized()) {
+                LOGE("<%s, %d> display %d exists!", __FUNCTION__, __LINE__, mCurrentParam.displayId);
+                mTransactionReturnValue = BAD_VALUE;
+                return;
+            }
+
+            err = initPlane(sf);
+            if(err != NO_ERROR) {
+                LOGE("<%s, %d> initPlane %d failed!", __FUNCTION__, __LINE__, mCurrentParam.displayId);
+                mTransactionReturnValue = err;
+                return;
+            }
+
+            sf->setDisplayCblk(mCurrentParam.displayId);
+
+            break;
+
+        case OPERATE_CODE_DISABLE:
+            if(mCurrentParam.displayId == 0) {
+                LOGE("<%s, %d> the primary display exists!", __FUNCTION__, __LINE__);
+                mTransactionReturnValue = BAD_VALUE;
+                return;
+            }
+
+            if(!initialized()) {
+                LOGE("<%s, %d> display %d does not exists!", __FUNCTION__, __LINE__, mCurrentParam.displayId);
+                mTransactionReturnValue = BAD_VALUE;
+                return;
+            }
+
+            sf->clearDisplayCblk(mCurrentParam.displayId);
+
+            err = unInitPlane(sf);
+            if(err != NO_ERROR) {
+                LOGE("<%s, %d> unInitPlane %d failed!", __FUNCTION__, __LINE__, mCurrentParam.displayId);
+                mTransactionReturnValue = err;
+                return;
+            }
+
+            break;
+
+        case OPERATE_CODE_CHANGE:
+            if(!initialized()) {
+                LOGE("<%s, %d> display %d does not exists!", __FUNCTION__, __LINE__, mCurrentParam.displayId);
+                mTransactionReturnValue = BAD_VALUE;
+                return;
+            }
+            err = changePlaneSize(sf);
+            break;
+        default:
+            LOGE("<%s, %d> invalide operate code %d!", __FUNCTION__, __LINE__, (int)mCurrentParam.operateCode);
+            err = BAD_VALUE;
+            break;
+    }
+
+    mTransactionReturnValue = err;
+}
+
+uint32_t ConfigurableGraphicPlane::getTransactionFlags(uint32_t flags) {
+    return android_atomic_and(~flags, &mTransactionFlags) & flags;
+}
+
+uint32_t ConfigurableGraphicPlane::setTransactionFlags(uint32_t flags) {
+    return android_atomic_or(flags, &mTransactionFlags);
+}
+
+void SurfaceFlinger::setDisplayCblk(int dpy)
+{
+    ConfigurableGraphicPlane& plane = (ConfigurableGraphicPlane&)graphicPlane(dpy);
+    const DisplayHardware& hw =plane.displayHardware();
+    // initialize the shared control block
+    mServerCblk->connected |= 1<<dpy;
+    display_cblk_t* dcblk = mServerCblk->displays + dpy;
+    memset(dcblk, 0, sizeof(display_cblk_t));
+    dcblk->w            = plane.getWidth();
+    dcblk->h            = plane.getHeight();
+    dcblk->format       = hw.getFormat();
+    dcblk->orientation  = ISurfaceComposer::eOrientationDefault;
+    dcblk->xdpi         = hw.getDpiX();
+    dcblk->ydpi         = hw.getDpiY();
+    dcblk->fps          = hw.getRefreshRate();
+    dcblk->density      = hw.getDensity();
+}
+
+void SurfaceFlinger::clearDisplayCblk(int dpy)
+{
+    // uninitialize the shared control block
+    mServerCblk->connected &= ~(1<<dpy);
+    display_cblk_t* dcblk = mServerCblk->displays + dpy;
+    memset(dcblk, 0, sizeof(display_cblk_t));
+}
+
+void SurfaceFlinger::resizeSwapRegion()
+{
+    if(mActivePlaneIndex == 0) {
+        ConfigurableGraphicPlane& plane = (ConfigurableGraphicPlane&)graphicPlane(mActivePlaneIndex);
+        HWComposer& hwc(plane.displayHardware().getHwComposer());
+        int xscaleRate = plane.getXOverScan();
+        int yscaleRate = plane.getYOverScan();
+        int keepRate = plane.getKeepRate();
+        if(xscaleRate == 0 && yscaleRate == 0 && keepRate != SETTING_MODE_KEEP_16_9_RATE
+                     && keepRate != SETTING_MODE_KEEP_4_3_RATE) {
+            return;
+        }
+
+        int displayWidth = graphicPlane(mActivePlaneIndex).getWidth();
+        int displayHeight = graphicPlane(mActivePlaneIndex).getHeight();
+        int dw = displayWidth;
+        int dh = displayHeight;
+        int orientation = graphicPlane(mActivePlaneIndex).getOrientation(); 
+        Rect rect_t(mSwapRegion.getBounds());
+        Rect *rect = &rect_t;
+        hwc.adjustDisplayParam((hwc_rect_t*)rect, keepRate, dw, dh, displayWidth, displayHeight, &dw, &dh, orientation);
+        hwc.adjustRectScale((hwc_rect_t*)rect, dw, dh, xscaleRate, yscaleRate, orientation);
+        mSwapRegion.set(rect_t);
+        return;
+    }
+
+    int dw = graphicPlane(mActivePlaneIndex).getWidth();
+    int dh = graphicPlane(mActivePlaneIndex).getHeight();
+    int displayWidth = dw;
+    int displayHeight = dh;
+    int fw = graphicPlane(0).getWidth();
+    int fh = graphicPlane(0).getHeight();
+    int orientation = graphicPlane(mActivePlaneIndex).getOrientation();
+
+    Rect rect_t(mSwapRegion.getBounds());
+    Rect *rect = &rect_t;
+
+    ConfigurableGraphicPlane& plane = (ConfigurableGraphicPlane&)graphicPlane(mActivePlaneIndex);
+    HWComposer& hwc(plane.displayHardware().getHwComposer());
+    int xscaleRate = plane.getXOverScan();
+    int yscaleRate = plane.getYOverScan();
+    int keepRate = plane.getKeepRate();
+    hwc.adjustDisplayParam((hwc_rect_t*)rect, keepRate, fw, fh, displayWidth, displayHeight, &dw, &dh, orientation);
+    hwc.adjustRectScale((hwc_rect_t*)rect, dw, dh, xscaleRate, yscaleRate, orientation);
+    mSwapRegion.set(rect_t);
+}
+
+void SurfaceFlinger::handleDisplayTransaction()
+{
+    uint32_t trFlags = 0;
+
+    for (size_t i=0; i<NUM_DISPLAY_MAX; i++) {
+        ConfigurableGraphicPlane& plane = (ConfigurableGraphicPlane&)graphicPlane(i);
+        trFlags = plane.getTransactionFlags(eDisplayEventNeeded);
+        if(!trFlags) continue;
+
+        plane.doTransaction(this);
+    }
+
+    mDisplayTransactionCV.broadcast();
+}
+
+status_t SurfaceFlinger::configDisplay(configParam* param)
+{
+    int err = NO_ERROR;
+    int dpy = param->displayId;
+    if(dpy >= DISPLAY_COUNT) {
+        LOGE("%s, %d invalid DisplayID %d", __FUNCTION__, __LINE__, dpy);
+        return BAD_VALUE;
+    }
+    Mutex::Autolock _l(mDisplayStateLock);
+    uint32_t flags = 0;
+    ConfigurableGraphicPlane& plane = (ConfigurableGraphicPlane&)graphicPlane(dpy);
+
+    switch(param->operateCode & 0xf000) {
+        case OPERATE_CODE_ENABLE:
+        case OPERATE_CODE_DISABLE:
+	    if(dpy == 0) {
+		LOGE("<%s, %d> the primary display exists!", __FUNCTION__, __LINE__);
+		return BAD_VALUE;
+	    }
+        case OPERATE_CODE_CHANGE:
+            if(plane.setConfigParam(*param)) {
+                flags |= eDisplayEventNeeded;
+                setTransactionFlags(flags);
+                signalEvent();
+
+                mDisplayTransactionCV.wait(mDisplayStateLock);
+                err = ConfigurableGraphicPlane::mTransactionReturnValue;
+            }
+            break;
+        default:
+            LOGE("<%s, %d> invalide operate code %d!", __FUNCTION__, __LINE__, (int)param->operateCode);
+            err = BAD_VALUE;
+            break;
+    }
+
+    return err;
+}
+#endif
+
 void SurfaceFlinger::bootFinished()
 {
     const nsecs_t now = systemTime();
@@ -204,11 +686,11 @@ void SurfaceFlinger::onFirstRef()
     // Wait for the main thread to be done with its initialization
     mReadyToRunBarrier.wait();
 }
-
+#if 0
 static inline uint16_t pack565(int r, int g, int b) {
     return (r<<11)|(g<<5)|b;
 }
-
+#endif
 status_t SurfaceFlinger::readyToRun()
 {
     LOGI(   "SurfaceFlinger's main thread ready to run. "
@@ -216,14 +698,12 @@ status_t SurfaceFlinger::readyToRun()
 
     // we only support one display currently
     int dpy = 0;
-
     {
         // initialize the main display
         GraphicPlane& plane(graphicPlane(dpy));
         DisplayHardware* const hw = new DisplayHardware(this, dpy);
         plane.setDisplayHardware(hw);
     }
-
     // create the shared control-block
     mServerHeap = new MemoryHeapBase(4096,
             MemoryHeapBase::READ_ONLY, "SurfaceFlinger read-only heap");
@@ -233,7 +713,6 @@ status_t SurfaceFlinger::readyToRun()
     LOGE_IF(mServerCblk==0, "can't get to shared control block's address");
 
     new(mServerCblk) surface_flinger_cblk_t;
-
     // initialize primary screen
     // (other display should be initialized in the same manner, but
     // asynchronously, as they could come and go. None of this is supported
@@ -244,7 +723,6 @@ status_t SurfaceFlinger::readyToRun()
     const uint32_t h = hw.getHeight();
     const uint32_t f = hw.getFormat();
     hw.makeCurrent();
-
     // initialize the shared control block
     mServerCblk->connected |= 1<<dpy;
     display_cblk_t* dcblk = mServerCblk->displays + dpy;
@@ -297,6 +775,25 @@ status_t SurfaceFlinger::readyToRun()
 
     mReadyToRunBarrier.open();
 
+#ifdef FSL_IMX_DISPLAY
+    /*
+    *get action mode from settings xml.
+    */
+    if(hw.getDisplayType() == 1) {
+        XmlTool *pXmlTool = new XmlTool(FSL_SETTINGS_PREFERENCE);
+        if(pXmlTool == NULL) {
+            LOGW("Warning: xmltool not created");
+        }
+        else {
+            int actionMode = pXmlTool->getHex(FSL_PREFERENCE_KEEPRATE, SETTING_MODE_FULL_SCREEN);
+            LOGW("actionMode=0x%x", actionMode);
+            ConfigurableGraphicPlane& plane = (ConfigurableGraphicPlane&)graphicPlane(0);
+            plane.setKeepRate(actionMode);
+            delete pXmlTool;
+            pXmlTool = NULL;
+        }
+    }
+#endif
     /*
      *  We're now ready to accept clients...
      */
@@ -405,7 +902,11 @@ bool SurfaceFlinger::threadLoop()
     }
 
     // if we're in a global transaction, don't do anything.
+#ifdef FSL_IMX_DISPLAY
+    const uint32_t mask = eTransactionNeeded | eTraversalNeeded | eDisplayEventNeeded;
+#else
     const uint32_t mask = eTransactionNeeded | eTraversalNeeded;
+#endif
     uint32_t transactionFlags = peekTransactionFlags(mask);
     if (UNLIKELY(transactionFlags)) {
         handleTransaction(transactionFlags);
@@ -423,7 +924,58 @@ bool SurfaceFlinger::threadLoop()
         // build the h/w work list
         handleWorkList();
     }
+#ifdef FSL_IMX_DISPLAY
+    Region temRegion = mDirtyRegion;
+    for (size_t i=0; i<DISPLAY_COUNT; i++) {
+        if(mServerCblk->connected & (1<<i)) {
+            mDirtyRegion = temRegion;
+            ConfigurableGraphicPlane& plane = (ConfigurableGraphicPlane&)graphicPlane(i);
+            if(!plane.initialized()) continue;
 
+            int mirror = plane.getMirror();
+            if((i!=0) && !mirror) continue;
+
+            mActivePlaneIndex = i;
+            const DisplayHardware& hw(graphicPlane(i).displayHardware());
+            const DisplayHardware& hw0(graphicPlane(0).displayHardware());
+            //Only check the hw0's screen state, once it is been release
+            //all screen's update should be stopped
+            if (LIKELY(hw0.canDraw())) {
+                 // repaint the framebuffer (if needed)
+                 const int index = hw.getCurrentBufferIndex();
+                 GraphicLog& logger(GraphicLog::getInstance());
+
+                 logger.log(GraphicLog::SF_REPAINT, index);
+                 handleRepaint();
+
+                 // call glFinish and postfb only when actual repaint is done
+                 if (!mSwapRegion.isEmpty()) {
+                     // inform the h/w that we're done compositing
+                     logger.log(GraphicLog::SF_COMPOSITION_COMPLETE, index);
+                     hw.compositionComplete();
+                     // release the clients before we flip ('cause flip might block)
+
+                     logger.log(GraphicLog::SF_SWAP_BUFFERS, index);
+                             resizeSwapRegion();
+                     if(plane.mClearPlane == 1) {
+                                 plane.mClearPlane = 0;
+                                 plane.clearPlane();
+                     }
+                     postFramebuffer();
+                 }
+
+                 logger.log(GraphicLog::SF_REPAINT_DONE, index);
+	        } else {
+		        // pretend we did the post
+		        // comment out the compisitionComplete() due to clock on in early suspend
+		        //hw.compositionComplete();
+		        usleep(16667); // 60 fps period
+	        }
+        }
+    }
+
+    mActivePlaneIndex = 0;
+#else
     const DisplayHardware& hw(graphicPlane(0).displayHardware());
     if (LIKELY(hw.canDraw())) {
         // repaint the framebuffer (if needed)
@@ -447,11 +999,51 @@ bool SurfaceFlinger::threadLoop()
         hw.compositionComplete();
         usleep(16667); // 60 fps period
     }
+#endif
     return true;
 }
 
 void SurfaceFlinger::postFramebuffer()
 {
+#ifdef FSL_IMX_DISPLAY
+    if (!mSwapRegion.isEmpty()) {
+
+        if (UNLIKELY(mDebugFps && !mActivePlaneIndex)) {
+            debugShowFPS();
+        }
+
+        // this should never happen. we do the flip anyways so we don't
+        // risk to cause a deadlock with hwc
+        LOGW_IF(mSwapRegion.isEmpty(), "mSwapRegion is empty");
+        const DisplayHardware& hw(graphicPlane(mActivePlaneIndex).displayHardware());
+        const nsecs_t now = systemTime();
+        mDebugInSwapBuffers = now;
+        //Set orientation to second display flip usage
+        int secRotation = 0;
+        switch(mTopOrientation)
+        {
+         case 0x0:
+             secRotation = 0x0;
+             break;
+         case 0x04:
+             secRotation = 0x7;
+             break;
+         case 0x03:
+             secRotation = 0x3;
+             break;
+         case 0x07:
+             secRotation = 0x4;
+             break;
+         default:
+             secRotation = 0x0;
+             break;
+        }
+        hw.flip(mSwapRegion,secRotation);
+        mLastSwapBufferTime = systemTime() - now;
+        mDebugInSwapBuffers = 0;
+        mSwapRegion.clear();
+    }
+#else
     // this should never happen. we do the flip anyways so we don't
     // risk to cause a deadlock with hwc
     LOGW_IF(mSwapRegion.isEmpty(), "mSwapRegion is empty");
@@ -462,6 +1054,7 @@ void SurfaceFlinger::postFramebuffer()
     mLastSwapBufferTime = systemTime() - now;
     mDebugInSwapBuffers = 0;
     mSwapRegion.clear();
+#endif
 }
 
 void SurfaceFlinger::handleConsoleEvents()
@@ -498,7 +1091,11 @@ void SurfaceFlinger::handleTransaction(uint32_t transactionFlags)
     // with mStateLock held to guarantee that mCurrentState won't change
     // until the transaction is committed.
 
+#ifdef FSL_IMX_DISPLAY
+    const uint32_t mask = eTransactionNeeded | eTraversalNeeded | eDisplayEventNeeded;
+#else
     const uint32_t mask = eTransactionNeeded | eTraversalNeeded;
+#endif
     transactionFlags = getTransactionFlags(mask);
     handleTransactionLocked(transactionFlags);
 
@@ -540,21 +1137,26 @@ void SurfaceFlinger::handleTransactionLocked(uint32_t transactionFlags)
             // the orientation has changed, recompute all visible regions
             // and invalidate everything.
 
-            const int dpy = 0;
+            int dpy = 0;
             const int orientation = mCurrentState.orientation;
             // Currently unused: const uint32_t flags = mCurrentState.orientationFlags;
-            GraphicPlane& plane(graphicPlane(dpy));
-            plane.setOrientation(orientation);
+            for (int k=DISPLAY_COUNT-1; k>=0; k--) {
+                if(mServerCblk->connected & (1<<k)) {
+                    dpy = k;
+                    GraphicPlane& plane(graphicPlane(dpy));
+                    plane.setOrientation(orientation);
 
-            // update the shared control block
-            const DisplayHardware& hw(plane.displayHardware());
-            volatile display_cblk_t* dcblk = mServerCblk->displays + dpy;
-            dcblk->orientation = orientation;
-            dcblk->w = plane.getWidth();
-            dcblk->h = plane.getHeight();
-
+                    // update the shared control block
+                    const DisplayHardware& hw(plane.displayHardware());
+                    volatile display_cblk_t* dcblk = mServerCblk->displays + dpy;
+                    dcblk->orientation = orientation;
+                    dcblk->w = plane.getWidth();
+                    dcblk->h = plane.getHeight();
+                    if(k == 0)
+                        mDirtyRegion.set(hw.bounds());
+                }
+            }
             mVisibleRegionsDirty = true;
-            mDirtyRegion.set(hw.bounds());
         }
 
         if (currentLayers.size() > mDrawingState.layersSortedByZ.size()) {
@@ -578,6 +1180,12 @@ void SurfaceFlinger::handleTransactionLocked(uint32_t transactionFlags)
             }
         }
     }
+
+#ifdef FSL_IMX_DISPLAY
+    if(transactionFlags & eDisplayEventNeeded) {
+        handleDisplayTransaction();
+    }
+#endif
 
     commitTransaction();
 }
@@ -655,7 +1263,39 @@ void SurfaceFlinger::computeVisibleRegions(
         // subtract the opaque region covered by the layers above us
         visibleRegion.subtractSelf(aboveOpaqueLayers);
 
-        // compute this layer's dirty region
+#ifdef FSL_IMX_DISPLAY
+	// compute this layer's dirty region
+	if (layer->contentDirty) {
+	    // we need to invalidate the whole region
+	    dirty = visibleRegion;
+	    // as well, as the old visible region
+	    dirty.orSelf(layer->visibleRegionScreen);
+	    layer->contentDirty = false;
+	} else {
+	    /* compute the exposed region:
+	     *   the exposed region consists of two components:
+	     *   1) what's VISIBLE now and was COVERED before
+	     *   2) what's EXPOSED now less what was EXPOSED before
+	     *
+	     * note that (1) is conservative, we start with the whole
+	     * visible region but only keep what used to be covered by
+	     * something -- which mean it may have been exposed.
+	     *
+	     * (2) handles areas that were not covered by anything but got
+	     * exposed because of a resize.
+	     */
+	    const Region newExposed = visibleRegion - coveredRegion;
+	    const Region oldVisibleRegion = layer->visibleRegionScreen;
+	    const Region oldCoveredRegion = layer->coveredRegionScreen;
+	    const Region oldExposed = oldVisibleRegion - oldCoveredRegion;
+	    dirty = (visibleRegion&oldCoveredRegion) | (newExposed-oldExposed);
+	}
+	dirty.subtractSelf(aboveOpaqueLayers);
+
+	// accumulate to the screen dirty region
+	dirtyRegion.orSelf(dirty);
+#else
+                // compute this layer's dirty region
         if (layer->contentDirty) {
             // we need to invalidate the whole region
             dirty = visibleRegion;
@@ -688,7 +1328,7 @@ void SurfaceFlinger::computeVisibleRegions(
 
         // Update aboveOpaqueLayers for next (lower) layer
         aboveOpaqueLayers.orSelf(opaqueRegion);
-
+#endif
         // Store the visible region is screen space
         layer->setVisibleRegion(visibleRegion);
         layer->setCoveredRegion(coveredRegion);
@@ -732,6 +1372,9 @@ void SurfaceFlinger::handlePageFlip()
         const DisplayHardware& hw = graphicPlane(0).displayHardware();
         const Region screenRegion(hw.bounds());
         if (visibleRegions) {
+#ifdef FSL_IMX_DISPLAY
+            ConfigurableGraphicPlane::mUpdateVisibleRegion = 1;
+#endif
             Region opaqueRegion;
             computeVisibleRegions(currentLayers, mDirtyRegion, opaqueRegion);
 
@@ -760,6 +1403,9 @@ void SurfaceFlinger::handlePageFlip()
 void SurfaceFlinger::invalidateHwcGeometry()
 {
     mHwWorkListDirty = true;
+#ifdef FSL_IMX_DISPLAY
+    ConfigurableGraphicPlane::mUpdateVisibleRegion = 1;
+#endif
 }
 
 bool SurfaceFlinger::lockPageFlip(const LayerVector& currentLayers)
@@ -789,6 +1435,49 @@ void SurfaceFlinger::unlockPageFlip(const LayerVector& currentLayers)
 void SurfaceFlinger::handleWorkList()
 {
     mHwWorkListDirty = false;
+#ifdef FSL_IMX_DISPLAY
+    for (int k=DISPLAY_COUNT-1; k>=0; k--) {
+        if(mServerCblk->connected & (1<<k)) {
+	    HWComposer& hwc(graphicPlane(k).displayHardware().getHwComposer());
+	    if (hwc.initCheck() == NO_ERROR) {
+		const Vector< sp<LayerBase> >& currentLayers(mVisibleLayersSortedByZ);
+		const size_t count = currentLayers.size();
+		hwc.createWorkList(count);
+		hwc_layer_t* const cur(hwc.getLayers());
+		for (size_t i=0 ; cur && i<count ; i++) {
+		    currentLayers[i]->setGeometry(&cur[i]);
+                    ConfigurableGraphicPlane& plane = (ConfigurableGraphicPlane&)graphicPlane(k);
+                    int xscaleRate = plane.getXOverScan();
+                    int yscaleRate = plane.getYOverScan();
+                    int keepRate = plane.getKeepRate();
+                    int orientation = graphicPlane(mActivePlaneIndex).getOrientation();
+
+                    if(k != 0 && ConfigurableGraphicPlane::mUpdateVisibleRegion == 1) {
+                        int swidth = graphicPlane(k).getWidth();
+                        int sheight = graphicPlane(k).getHeight();
+                        hwc.adjustGeometry(&cur[i], keepRate, graphicPlane(0).getWidth(),
+                               graphicPlane(0).getHeight(), swidth,
+                               sheight, xscaleRate, yscaleRate, orientation);
+                    }
+
+                    if(k == 0 && ConfigurableGraphicPlane::mUpdateVisibleRegion == 1 &&
+                       (xscaleRate != 0 || yscaleRate != 0 || keepRate == SETTING_MODE_KEEP_16_9_RATE
+                        || keepRate == SETTING_MODE_KEEP_4_3_RATE)) {
+                        hwc.adjustGeometry(&cur[i], keepRate, graphicPlane(0).getWidth(),
+                                graphicPlane(0).getHeight(), graphicPlane(0).getWidth(),
+                                graphicPlane(0).getHeight(), xscaleRate, yscaleRate, orientation);
+                    }
+
+		    if (mDebugDisableHWC || mDebugRegion) {
+			cur[i].compositionType = HWC_FRAMEBUFFER;
+			cur[i].flags |= HWC_SKIP_LAYER;
+		    }
+		}
+	    }
+        }
+    }//end for
+    ConfigurableGraphicPlane::mUpdateVisibleRegion = 0;
+#else
     HWComposer& hwc(graphicPlane(0).displayHardware().getHwComposer());
     if (hwc.initCheck() == NO_ERROR) {
         const Vector< sp<LayerBase> >& currentLayers(mVisibleLayersSortedByZ);
@@ -803,6 +1492,7 @@ void SurfaceFlinger::handleWorkList()
             }
         }
     }
+#endif
 }
 
 void SurfaceFlinger::handleRepaint()
@@ -810,12 +1500,20 @@ void SurfaceFlinger::handleRepaint()
     // compute the invalid region
     mSwapRegion.orSelf(mDirtyRegion);
 
+#ifdef FSL_IMX_DISPLAY
+    if (UNLIKELY(mDebugRegion) && mActivePlaneIndex == 0) {
+#else
     if (UNLIKELY(mDebugRegion)) {
+#endif
         debugFlashRegions();
     }
 
     // set the frame buffer
+#ifdef FSL_IMX_DISPLAY
+    const DisplayHardware& hw(graphicPlane(mActivePlaneIndex).displayHardware());
+#else
     const DisplayHardware& hw(graphicPlane(0).displayHardware());
+#endif
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
 
@@ -860,7 +1558,11 @@ void SurfaceFlinger::handleRepaint()
 
 void SurfaceFlinger::setupHardwareComposer(Region& dirtyInOut)
 {
+#ifdef FSL_IMX_DISPLAY
+    const DisplayHardware& hw(graphicPlane(mActivePlaneIndex).displayHardware());
+#else
     const DisplayHardware& hw(graphicPlane(0).displayHardware());
+#endif
     HWComposer& hwc(hw.getHwComposer());
     hwc_layer_t* const cur(hwc.getLayers());
     if (!cur) {
@@ -960,16 +1662,30 @@ void SurfaceFlinger::setupHardwareComposer(Region& dirtyInOut)
 
 void SurfaceFlinger::composeSurfaces(const Region& dirty)
 {
+#ifdef FSL_IMX_DISPLAY
+    const DisplayHardware& hw(graphicPlane(mActivePlaneIndex).displayHardware());
+#else
     const DisplayHardware& hw(graphicPlane(0).displayHardware());
+#endif
     HWComposer& hwc(hw.getHwComposer());
+
+#ifdef FSL_IMX_DISPLAY
+    if(mActivePlaneIndex != 0)
+        return;
+#endif
 
     const size_t fbLayerCount = hwc.getLayerCount(HWC_FRAMEBUFFER);
     if (UNLIKELY(fbLayerCount && !mWormholeRegion.isEmpty())) {
         // should never happen unless the window manager has a bug
         // draw something...
         drawWormhole();
+#ifdef FSL_IMX_DISPLAY
+        mWormholeRegion.clear();
+#endif
     }
-
+#ifdef FSL_IMX_DISPLAY
+    mTopOrientation = 0;
+#endif
     /*
      * and then, render the layers targeted at the framebuffer
      */
@@ -983,6 +1699,9 @@ void SurfaceFlinger::composeSurfaces(const Region& dirty)
         const sp<LayerBase>& layer(layers[i]);
         const Region clip(dirty.intersect(layer->visibleRegionScreen));
         if (!clip.isEmpty()) {
+#ifdef FSL_IMX_DISPLAY
+            mTopOrientation = layer->getOrientation();
+#endif
             layer->draw(clip);
         }
     }
@@ -1108,6 +1827,7 @@ void SurfaceFlinger::debugShowFPS() const
         mLastFrameCount = mFrameCount;
     }
     // XXX: mFPS has the value we want
+    LOGI("fps - %.2f",mFps);
  }
 
 status_t SurfaceFlinger::addLayer(const sp<LayerBase>& layer)
@@ -1337,10 +2057,23 @@ sp<Layer> SurfaceFlinger::createNormalSurface(
         format = PIXEL_FORMAT_RGBA_8888;
         break;
     case PIXEL_FORMAT_OPAQUE:
+#ifdef FSL_IMX_DISPLAY
+        const DisplayHardware& dispHardware = graphicPlane(0).displayHardware();
+        LOGI("mHw->getFormat() %d",dispHardware.getFormat());
+        if((dispHardware.getFormat() == PIXEL_FORMAT_RGBA_8888)||
+           (dispHardware.getFormat() == PIXEL_FORMAT_RGBX_8888)||
+           (dispHardware.getFormat() == PIXEL_FORMAT_BGRA_8888)) {
+            format = PIXEL_FORMAT_RGBA_8888;
+        }
+        else{
+            format = PIXEL_FORMAT_RGB_565;
+        }
+#else
 #ifdef NO_RGBX_8888
         format = PIXEL_FORMAT_RGB_565;
 #else
         format = PIXEL_FORMAT_RGBX_8888;
+#endif	// No_RGBX_8888
 #endif
         break;
     }

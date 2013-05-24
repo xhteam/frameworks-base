@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+/* Copyright (C) 2011-2012 Freescale Semiconductor, Inc. */
+
 #ifndef ANDROID_DISPLAY_HARDWARE_H
 #define ANDROID_DISPLAY_HARDWARE_H
 
@@ -32,6 +34,7 @@
 #include "GLExtensions.h"
 
 #include "DisplayHardware/DisplayHardwareBase.h"
+#include <hardware/DisplayCommand.h>
 
 namespace android {
 
@@ -62,6 +65,10 @@ public:
     // be instantaneous, might involve copying the frame buffer around.
     void flip(const Region& dirty) const;
 
+#ifdef FSL_IMX_DISPLAY
+    void flip(const Region& dirty, int secRotation) const;
+#endif    
+    
     float       getDpiX() const;
     float       getDpiY() const;
     float       getRefreshRate() const;
@@ -73,6 +80,7 @@ public:
     void        makeCurrent() const;
     uint32_t    getMaxTextureSize() const;
     uint32_t    getMaxViewportDims() const;
+    int         getDisplayType() const;
 
     uint32_t getPageFlipCount() const;
     EGLDisplay getEGLDisplay() const { return mDisplay; }
@@ -91,6 +99,16 @@ public:
 
     // only for debugging
     int getCurrentBufferIndex() const;
+
+public:
+#ifdef FSL_IMX_DISPLAY
+    DisplayHardware(
+            const sp<SurfaceFlinger>& flinger,
+            const configParam& param);
+    int sendCommand(int operateCode, const configParam& param);
+    void destroyCurrent() const;
+    mutable int intialized;
+#endif
 
 private:
     void init(uint32_t displayIndex) __attribute__((noinline));
@@ -116,6 +134,7 @@ private:
     HWComposer*     mHwc;
 
     sp<FramebufferNativeWindow> mNativeWindow;
+    int             mDisplayType;
 };
 
 }; // namespace android

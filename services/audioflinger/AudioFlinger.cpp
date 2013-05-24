@@ -14,7 +14,7 @@
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
 */
-
+/* Copyright 2009-2011 Freescale Semiconductor Inc. */
 
 #define LOG_TAG "AudioFlinger"
 //#define LOG_NDEBUG 0
@@ -1502,8 +1502,8 @@ sp<AudioFlinger::PlaybackThread::Track>  AudioFlinger::PlaybackThread::createTra
             }
         }
     } else {
-        // Resampler implementation limits input sampling rate to 2 x output sampling rate.
-        if (sampleRate > mSampleRate*2) {
+        // Resampler implementation limits input sampling rate to 8 x output sampling rate.
+        if (sampleRate > mSampleRate*8) {
             LOGE("Sample rate out of range: %d mSampleRate %d", sampleRate, mSampleRate);
             lStatus = BAD_VALUE;
             goto Exit;
@@ -3344,7 +3344,7 @@ void* AudioFlinger::ThreadBase::TrackBase::getBuffer(uint32_t offset, uint32_t f
     if (bufferStart < mBuffer || bufferStart > bufferEnd || bufferEnd > mBufferEnd ||
         ((unsigned long)bufferStart & (unsigned long)(cblk->frameSize - 1))) {
         LOGE("TrackBase::getBuffer buffer out of range:\n    start: %p, end %p , mBuffer %p mBufferEnd %p\n    \
-                server %d, serverBase %d, user %d, userBase %d",
+                server %lld, serverBase %lld, user %lld, userBase %lld, channelCount %d",
                 bufferStart, bufferEnd, mBuffer, mBufferEnd,
                 cblk->server, cblk->serverBase, cblk->user, cblk->userBase);
         return 0;
@@ -3434,7 +3434,7 @@ void AudioFlinger::PlaybackThread::Track::destroy()
 
 void AudioFlinger::PlaybackThread::Track::dump(char* buffer, size_t size)
 {
-    snprintf(buffer, size, "   %05d %05d %03u %03u 0x%08x %05u   %04u %1d %1d %1d %05u %05u %05u  0x%08x 0x%08x 0x%08x 0x%08x\n",
+   snprintf(buffer, size, "   %05d %05d %03u %03u %03u %05u   %04u %1d %1d %1d %05u %05u %05u  0x%08llx 0x%08llx 0x%08x 0x%08x\n",
             mName - AudioMixer::TRACK0,
             (mClient == NULL) ? getpid() : mClient->pid(),
             mStreamType,
@@ -3470,8 +3470,8 @@ status_t AudioFlinger::PlaybackThread::Track::getNextBuffer(AudioBufferProvider:
      framesReady = cblk->framesReady();
 
      if (LIKELY(framesReady)) {
-        uint32_t s = cblk->server;
-        uint32_t bufferEnd = cblk->serverBase + cblk->frameCount;
+        uint64_t s = cblk->server;
+        uint64_t bufferEnd = cblk->serverBase + cblk->frameCount;
 
         bufferEnd = (cblk->loopEnd < bufferEnd) ? cblk->loopEnd : bufferEnd;
         if (framesReq > framesReady) {
@@ -3719,8 +3719,8 @@ status_t AudioFlinger::RecordThread::RecordTrack::getNextBuffer(AudioBufferProvi
     framesAvail = cblk->framesAvailable_l();
 
     if (LIKELY(framesAvail)) {
-        uint32_t s = cblk->server;
-        uint32_t bufferEnd = cblk->serverBase + cblk->frameCount;
+        uint64_t s = cblk->server;
+        uint64_t bufferEnd = cblk->serverBase + cblk->frameCount;
 
         if (framesReq > framesAvail) {
             framesReq = framesAvail;
@@ -3768,7 +3768,7 @@ void AudioFlinger::RecordThread::RecordTrack::stop()
 
 void AudioFlinger::RecordThread::RecordTrack::dump(char* buffer, size_t size)
 {
-    snprintf(buffer, size, "   %05d %03u 0x%08x %05d   %04u %01d %05u  %08x %08x\n",
+   snprintf(buffer, size, "   %05d %03u %03u %05d   %04u %01d %05u  %08llx %08llx\n",
             (mClient == NULL) ? getpid() : mClient->pid(),
             mFormat,
             mChannelMask,
@@ -3993,8 +3993,8 @@ status_t AudioFlinger::PlaybackThread::OutputTrack::obtainBuffer(AudioBufferProv
         framesReq = framesAvail;
     }
 
-    uint32_t u = cblk->user;
-    uint32_t bufferEnd = cblk->userBase + cblk->frameCount;
+    uint64_t u = cblk->user;
+    uint64_t bufferEnd = cblk->userBase + cblk->frameCount;
 
     if (u + framesReq > bufferEnd) {
         framesReq = bufferEnd - u;
@@ -4741,7 +4741,7 @@ bool AudioFlinger::RecordThread::checkForNewParameters_l()
                 if (status == BAD_VALUE &&
                     reqFormat == mInput->stream->common.get_format(&mInput->stream->common) &&
                     reqFormat == AUDIO_FORMAT_PCM_16_BIT &&
-                    ((int)mInput->stream->common.get_sample_rate(&mInput->stream->common) <= (2 * reqSamplingRate)) &&
+                    ((int)mInput->stream->common.get_sample_rate(&mInput->stream->common) <= (8 * reqSamplingRate)) &&
                     (popcount(mInput->stream->common.get_channels(&mInput->stream->common)) < 3) &&
                     (reqChannelCount < 3)) {
                     status = NO_ERROR;

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* Copyright 2009-2011 Freescale Semiconductor Inc. */
 
 package com.android.server;
 
@@ -51,6 +52,7 @@ import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.os.WorkSource;
+import android.os.SystemProperties;
 import android.provider.Settings.SettingNotFoundException;
 import android.provider.Settings;
 import android.util.EventLog;
@@ -65,6 +67,7 @@ import static android.provider.Settings.System.SCREEN_OFF_TIMEOUT;
 import static android.provider.Settings.System.STAY_ON_WHILE_PLUGGED_IN;
 import static android.provider.Settings.System.WINDOW_ANIMATION_SCALE;
 import static android.provider.Settings.System.TRANSITION_ANIMATION_SCALE;
+import static android.provider.Settings.System.XEC_DLS_CONTROL;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -457,6 +460,9 @@ public class PowerManagerService extends IPowerManager.Stub
                 // SCREEN_OFF_TIMEOUT, default to 15 seconds
                 mScreenOffTimeoutSetting = getInt(SCREEN_OFF_TIMEOUT, DEFAULT_SCREEN_OFF_TIMEOUT);
 
+                int mXecDlsControl = getInt(XEC_DLS_CONTROL, 0x0);
+                SystemProperties.set("xec.dls.enabled", String.valueOf(mXecDlsControl));
+
                 // DIM_SCREEN
                 //mDimScreen = getInt(DIM_SCREEN) != 0;
 
@@ -624,8 +630,9 @@ public class PowerManagerService extends IPowerManager.Stub
                         + Settings.System.NAME + "=?) or ("
                         + Settings.System.NAME + "=?) or ("
                         + Settings.System.NAME + "=?) or ("
+                        + Settings.System.NAME + "=?) or ("
                         + Settings.System.NAME + "=?)",
-                new String[]{STAY_ON_WHILE_PLUGGED_IN, SCREEN_OFF_TIMEOUT, DIM_SCREEN,
+                new String[]{STAY_ON_WHILE_PLUGGED_IN, SCREEN_OFF_TIMEOUT, DIM_SCREEN, XEC_DLS_CONTROL,
                         SCREEN_BRIGHTNESS_MODE, WINDOW_ANIMATION_SCALE, TRANSITION_ANIMATION_SCALE},
                 null);
         mSettings = new ContentQueryMap(settingsCursor, Settings.System.NAME, true, mHandler);
@@ -2515,11 +2522,9 @@ public class PowerManagerService extends IPowerManager.Stub
         if (mLightSensorValue != value) {
             mLightSensorValue = value;
             if ((mPowerState & BATTERY_LOW_BIT) == 0) {
-                // use maximum light sensor value seen since screen went on for LCD to avoid flicker
-                // we only do this if we are undocked, since lighting should be stable when
-                // stationary in a dock.
+                // Use light sensor value no matter it is in a dock or not.
                 int lcdValue = getAutoBrightnessValue(
-                        (mIsDocked ? value : mHighestLightSensorValue),
+                        value,
                         mLcdBacklightValues);
                 int buttonValue = getAutoBrightnessValue(value, mButtonBacklightValues);
                 int keyboardValue;

@@ -14,6 +14,7 @@
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
 */
+/* Copyright 2009-2011 Freescale Semiconductor Inc. */
 
 #include <stdint.h>
 #include <sys/types.h>
@@ -55,6 +56,13 @@ enum {
     SET_VIDEO_SURFACETEXTURE,
     SET_PARAMETER,
     GET_PARAMETER,
+    CAPTURE_CURRENT_FRAME,
+    SET_VIDEO_CROP,
+    GET_TRACK_COUNT,
+    GET_TRACK_NAME,
+    GET_DEFAULT_TRACK,
+    SELECT_TRACK,
+    SET_PLAY_SPEED,
 };
 
 class BpMediaPlayer: public BpInterface<IMediaPlayer>
@@ -178,6 +186,75 @@ public:
         data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
         remote()->transact(GET_CURRENT_POSITION, data, &reply);
         *msec = reply.readInt32();
+        return reply.readInt32();
+    }
+
+    sp<IMemory> captureCurrentFrame()
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+        remote()->transact(CAPTURE_CURRENT_FRAME, data, &reply);
+        status_t ret = reply.readInt32();
+        if (ret != NO_ERROR) {
+            return NULL;
+        }
+        return interface_cast<IMemory>(reply.readStrongBinder());
+    }
+
+    status_t setVideoCrop(int top, int left, int bottom, int right)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+    	data.writeInt32(top);
+    	data.writeInt32(left);
+    	data.writeInt32(bottom);
+        data.writeInt32(right);
+        remote()->transact(SET_VIDEO_CROP, data, &reply);
+        return reply.readInt32();
+    }
+
+    status_t getTrackCount(int *count)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+        remote()->transact(GET_TRACK_COUNT, data, &reply);
+        *count = reply.readInt32();
+        return reply.readInt32();
+    }
+
+    status_t getDefaultTrack(int *number)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+        remote()->transact(GET_DEFAULT_TRACK, data, &reply);
+        *number = reply.readInt32();
+        return reply.readInt32();
+    }
+
+    char * getTrackName(int index)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+    	data.writeInt32(index);
+        remote()->transact(GET_TRACK_NAME, data, &reply);
+        return (char*)reply.readCString();
+    }
+
+    status_t selectTrack(int index)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+        data.writeInt32(index);
+        remote()->transact(SELECT_TRACK, data, &reply);
+        return reply.readInt32();
+    }
+
+    status_t setPlaySpeed(int speed)
+    {
+        Parcel data, reply;
+        data.writeInterfaceToken(IMediaPlayer::getInterfaceDescriptor());
+        data.writeInt32(speed);
+        remote()->transact(SET_PLAY_SPEED, data, &reply);
         return reply.readInt32();
     }
 
@@ -458,12 +535,61 @@ status_t BnMediaPlayer::onTransact(
         case GET_PARAMETER: {
             CHECK_INTERFACE(IMediaPlayer, data, reply);
             return getParameter(data.readInt32(), reply);
+	} break;
+        case CAPTURE_CURRENT_FRAME: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            sp<IMemory> bitmap = captureCurrentFrame();
+            if (bitmap != 0) {  // Don't send NULL across the binder interface
+                reply->writeInt32(NO_ERROR);
+                reply->writeStrongBinder(bitmap->asBinder());
+            } else {
+                reply->writeInt32(UNKNOWN_ERROR);
+            }
+            return NO_ERROR;
         } break;
-        default:
-            return BBinder::onTransact(code, data, reply, flags);
+        case SET_VIDEO_CROP: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            status_t ret = setVideoCrop(data.readInt32(),data.readInt32(),data.readInt32(),data.readInt32());
+            reply->writeInt32(ret);
+            return NO_ERROR;
+        } break;
+        case GET_TRACK_COUNT: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            int count = 0;
+            status_t ret = getTrackCount(&count);
+            reply->writeInt32(count);
+            reply->writeInt32(ret);
+            return NO_ERROR;
+        } break;
+        case GET_DEFAULT_TRACK: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            int number = 0;
+            status_t ret = getDefaultTrack(&number);
+            reply->writeInt32(number);
+            reply->writeInt32(ret);
+            return NO_ERROR;
+        } break;
+        case GET_TRACK_NAME: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            char* ret = getTrackName(data.readInt32());
+            reply->writeCString(ret);
+            return NO_ERROR;
+        } break;
+        case SELECT_TRACK: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            status_t ret = selectTrack(data.readInt32());
+            reply->writeInt32(ret);
+            return NO_ERROR;
+        } break;
+        case SET_PLAY_SPEED: {
+            CHECK_INTERFACE(IMediaPlayer, data, reply);
+            status_t ret = setPlaySpeed(data.readInt32());
+            reply->writeInt32(ret);
+            return NO_ERROR;
+        } break;
     }
+    return BBinder::onTransact(code, data, reply, flags);
 }
-
 // ----------------------------------------------------------------------------
 
 }; // namespace android

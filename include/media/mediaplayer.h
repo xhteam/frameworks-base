@@ -115,6 +115,9 @@ enum media_info_type {
     MEDIA_INFO_NOT_SEEKABLE = 801,
     // New media metadata is available.
     MEDIA_INFO_METADATA_UPDATE = 802,
+    // Async seek, seek is done in another thread
+    MEDIA_INFO_ASYNC_SEEK = 803,
+
 };
 
 
@@ -201,7 +204,13 @@ public:
             status_t        attachAuxEffect(int effectId);
             status_t        setParameter(int key, const Parcel& request);
             status_t        getParameter(int key, Parcel* reply);
-
+            sp<IMemory>     captureCurrentFrame();
+            status_t    setVideoCrop(int top,int left, int bottom, int right);
+            status_t    getTrackCount(int *count);
+            status_t    getDefaultTrack(int *number);
+            char*       getTrackName(int index);
+            status_t    selectTrack(int index);
+            status_t    setPlaySpeed(int speed);
 private:
             void            clear_l();
             status_t        seekTo_l(int msec);

@@ -13,6 +13,7 @@
  ** See the License for the specific language governing permissions and
  ** limitations under the License.
  */
+/* Copyright 2009-2011 Freescale Semiconductor Inc. */
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "MediaRecorderService"
@@ -42,6 +43,10 @@
 
 #include "StagefrightRecorder.h"
 #include <gui/ISurfaceTexture.h>
+
+#ifdef FSL_GM_PLAYER
+#include "media/OMXMediaRecorder.h"
+#endif
 
 namespace android {
 
@@ -306,9 +311,21 @@ status_t MediaRecorderClient::release()
 MediaRecorderClient::MediaRecorderClient(const sp<MediaPlayerService>& service, pid_t pid)
 {
     LOGV("Client constructor");
-    mPid = pid;
-    mRecorder = new StagefrightRecorder;
-    mMediaPlayerService = service;
+	mPid = pid;
+
+#ifdef FSL_GM_PLAYER
+	char value[PROPERTY_VALUE_MAX];
+	if (property_get("media.omxgm.enable-record", value, NULL)
+			&& ( !strcmp(value, "1") || !strcasecmp(value, "true"))) {
+		mRecorder = new OMXRecorder;
+	} else {
+#endif
+		mRecorder = new StagefrightRecorder;
+#ifdef FSL_GM_PLAYER
+	}
+#endif
+
+	mMediaPlayerService = service;
 }
 
 MediaRecorderClient::~MediaRecorderClient()

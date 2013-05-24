@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 The Android Open Source Project
+ * Copyright (C) 2010-2012 Freescale Semiconductor, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +24,7 @@
 #include <EGL/egl.h>
 
 #include <hardware/hwcomposer.h>
+#include <hardware/DisplayCommand.h>
 
 #include <utils/StrongPointer.h>
 #include <utils/Vector.h>
@@ -70,6 +72,16 @@ public:
     // for debugging
     void dump(String8& out, char* scratch, size_t SIZE,
             const Vector< sp<LayerBase> >& visibleLayersSortedByZ) const;
+
+public:
+    void adjustGeometry(hwc_layer_t *layer, int keepRate, int defaultWidth, int defaultHeight,
+                   int displayWidth, int displayHeight, int xScale, int yScale, int orientation);
+    void adjustRectParam(hwc_rect_t*, float, float, int, int);
+    void adjustRectScale(hwc_rect_t *rect, int dw, int dh, int xScale, int yScale, int orientation);
+    void adjustDisplayParam(hwc_rect_t *rect, int keepRate, int defaultWidth, int defaultHeight,
+                         int displayWidth, int displayHeight, int* pdw, int* pdh, int orientation);
+    void freeAllocatedBuffer();
+    int isAllocated;
 
 private:
     struct cb_context {

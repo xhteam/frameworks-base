@@ -390,13 +390,20 @@ status_t MediaPlayer::getCurrentPosition(int *msec)
     return INVALID_OPERATION;
 }
 
+status_t MediaPlayer::setPlaySpeed(int speed)
+{
+    Mutex::Autolock _l(mLock);
+    if (mPlayer != 0) { 
+        return mPlayer->setPlaySpeed(speed);
+    }
+    return INVALID_OPERATION;
+}
+
 status_t MediaPlayer::getDuration_l(int *msec)
 {
-    LOGV("getDuration");
     bool isValidState = (mCurrentState & (MEDIA_PLAYER_PREPARED | MEDIA_PLAYER_STARTED | MEDIA_PLAYER_PAUSED | MEDIA_PLAYER_STOPPED | MEDIA_PLAYER_PLAYBACK_COMPLETE));
     if (mPlayer != 0 && isValidState) {
         status_t ret = NO_ERROR;
-        if (mDuration <= 0)
             ret = mPlayer->getDuration(&mDuration);
         if (msec)
             *msec = mDuration;
@@ -596,6 +603,62 @@ status_t MediaPlayer::getParameter(int key, Parcel *reply)
          return  mPlayer->getParameter(key, reply);
     }
     LOGV("getParameter: no active player");
+    return INVALID_OPERATION;
+}
+
+sp<IMemory> MediaPlayer::captureCurrentFrame()
+{
+    LOGV("captureCurrentFrame");
+    Mutex::Autolock _l(mLock);
+    if (mPlayer != 0) {
+         return mPlayer->captureCurrentFrame();
+    }
+    LOGV("captureCurrentFrame: no active player");
+    return NULL;
+}
+
+status_t MediaPlayer::setVideoCrop(int top, int left, int bottom, int right)
+{
+    Mutex::Autolock _l(mLock);
+    if (mPlayer != 0) {
+        return mPlayer->setVideoCrop(top, left, bottom, right);
+    }
+    return INVALID_OPERATION;
+}
+
+status_t MediaPlayer::getTrackCount(int *count)
+{
+    Mutex::Autolock _l(mLock);
+    if (mPlayer != 0) {
+        return mPlayer->getTrackCount(count);
+    }
+    return INVALID_OPERATION;
+}
+
+status_t MediaPlayer::getDefaultTrack(int *number)
+{
+    Mutex::Autolock _l(mLock);
+    if (mPlayer != 0) {
+        return mPlayer->getDefaultTrack(number);
+    }
+    return INVALID_OPERATION;
+}
+
+char* MediaPlayer::getTrackName(int index)
+{
+    Mutex::Autolock _l(mLock);
+    if (mPlayer != 0) {
+        return mPlayer->getTrackName(index);
+    }
+    return NULL;
+}
+
+status_t MediaPlayer::selectTrack(int index)
+{
+    Mutex::Autolock _l(mLock);
+    if (mPlayer != 0) {
+        return mPlayer->selectTrack(index);
+    }
     return INVALID_OPERATION;
 }
 

@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+/* Copyright 2009-2011 Freescale Semiconductor Inc. */
+
 #include <ui/PixelFormat.h>
 #include <pixelflinger/format.h>
 #include <hardware/hardware.h>
@@ -63,6 +65,8 @@ status_t getPixelFormatInfo(PixelFormat format, PixelFormatInfo* info)
         info->bitsPerPixel = 16;
         goto done;
     case HAL_PIXEL_FORMAT_YCrCb_420_SP:
+    case HAL_PIXEL_FORMAT_YCbCr_420_SP:
+    case HAL_PIXEL_FORMAT_YCbCr_420_I:
     case HAL_PIXEL_FORMAT_YV12:
         info->bitsPerPixel = 12;
      done:

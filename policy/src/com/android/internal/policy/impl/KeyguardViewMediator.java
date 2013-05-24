@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2007 The Android Open Source Project
+ * Copyright 2009-2012 Freescale Semiconductor, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -202,7 +203,7 @@ public class KeyguardViewMediator implements KeyguardViewCallback,
     /**
      * External apps (like the phone app) can tell us to disable the keygaurd.
      */
-    private boolean mExternallyEnabled = true;
+    private boolean mExternallyEnabled = false;
 
     /**
      * Remember if an external call to {@link #setKeyguardEnabled} with value

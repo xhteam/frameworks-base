@@ -29,7 +29,18 @@ LOCAL_SHARED_LIBRARIES := \
     libsqlite \
     libmtp \
     libusbhost \
-    libexif
+    libexif    \
+
+ifeq ($(HAVE_FSL_IMX_CODEC),true)
+LOCAL_SHARED_LIBRARIES +=                       \
+	lib_omx_player_arm11_elinux \
+	lib_omx_osal_v2_arm11_elinux \
+	lib_omx_client_arm11_elinux \
+	lib_omx_utils_v2_arm11_elinux \
+	lib_omx_core_mgr_v2_arm11_elinux \
+	lib_omx_res_mgr_v2_arm11_elinux \
+	lib_id3_parser_arm11_elinux
+endif
 
 LOCAL_C_INCLUDES += \
     external/jhead \
@@ -44,7 +55,15 @@ LOCAL_C_INCLUDES += \
     $(JNI_H_INCLUDE) \
     $(call include-path-for, corecg graphics)
 
-LOCAL_CFLAGS +=
+LOCAL_CFLAGS += -DBUILD_WITH_FULL_STAGEFRIGHT
+
+ifeq ($(HAVE_FSL_IMX_CODEC),true)
+LOCAL_CFLAGS += -DFSL_GM_PLAYER
+endif
+
+ifeq ($(findstring x4.,x$(PLATFORM_VERSION)), x4.)
+LOCAL_CFLAGS += -DICS
+endif
 
 LOCAL_LDLIBS := -lpthread
 

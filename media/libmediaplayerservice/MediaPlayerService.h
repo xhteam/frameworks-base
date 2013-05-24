@@ -14,6 +14,7 @@
 ** See the License for the specific language governing permissions and
 ** limitations under the License.
 */
+/* Copyright 2009-2011 Freescale Semiconductor Inc. */
 
 #ifndef ANDROID_MEDIAPLAYERSERVICE_H
 #define ANDROID_MEDIAPLAYERSERVICE_H
@@ -29,6 +30,7 @@
 #include <media/IMediaPlayerService.h>
 #include <media/MediaPlayerInterface.h>
 #include <media/Metadata.h>
+#include <binder/MemoryDealer.h>
 
 #include <system/audio.h>
 
@@ -191,6 +193,7 @@ public:
 
     virtual sp<IMemory>         decode(const char* url, uint32_t *pSampleRate, int* pNumChannels, int* pFormat);
     virtual sp<IMemory>         decode(int fd, int64_t offset, int64_t length, uint32_t *pSampleRate, int* pNumChannels, int* pFormat);
+    virtual sp<IMemory>         snoop();
     virtual sp<IOMX>            getOMX();
 
     virtual status_t            dump(int fd, const Vector<String16>& args);
@@ -270,6 +273,13 @@ private:
         virtual status_t        attachAuxEffect(int effectId);
         virtual status_t        setParameter(int key, const Parcel &request);
         virtual status_t        getParameter(int key, Parcel *reply);
+        virtual sp<IMemory> captureCurrentFrame();
+        virtual status_t    setVideoCrop(int iTop, int iRight, int iBottom, int iLeft);
+        virtual status_t    getTrackCount(int *count);
+        virtual status_t    getDefaultTrack(int *number);
+        virtual char*       getTrackName(int index);
+        virtual status_t    selectTrack(int index);
+        virtual status_t    setPlaySpeed(int speed);
 
         sp<MediaPlayerBase>     createPlayer(player_type playerType);
 
@@ -346,6 +356,8 @@ private:
 #if CALLBACK_ANTAGONIZER
                     Antagonizer*                mAntagonizer;
 #endif
+        sp<MemoryDealer>                       mVideoFrameDealer;
+        sp<IMemory>                            mVideoFrame;
     };
 
 // ----------------------------------------------------------------------------

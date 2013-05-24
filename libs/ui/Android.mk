@@ -51,7 +51,8 @@ LOCAL_SRC_FILES:= \
 	InputTransport.cpp \
 	PixelFormat.cpp \
 	Rect.cpp \
-	Region.cpp
+	Region.cpp \
+        DisplayCommand.cpp
 
 LOCAL_SHARED_LIBRARIES := \
 	libcutils \
@@ -67,6 +68,18 @@ LOCAL_C_INCLUDES := \
     external/skia/include/core
 
 LOCAL_MODULE:= libui
+
+ifeq ($(TARGET_SIMULATOR),true)
+    LOCAL_LDLIBS += -lpthread
+endif
+
+ifeq ($(HAVE_FSL_IMX_IPU),true)
+LOCAL_CFLAGS += -DFSL_IMX_DISPLAY
+else ifeq ($(HAVE_FSL_IMX_GPU3D),true)
+LOCAL_CFLAGS += -DFSL_IMX_DISPLAY
+else ifeq ($(HAVE_FSL_IMX_GPU2D),true)
+LOCAL_CFLAGS += -DFSL_IMX_DISPLAY
+endif
 
 include $(BUILD_SHARED_LIBRARY)
 

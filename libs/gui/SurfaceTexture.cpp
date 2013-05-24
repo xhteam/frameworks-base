@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+/* Copyright 2009-2011 Freescale Semiconductor Inc. */
+
 #define LOG_TAG "SurfaceTexture"
 //#define LOG_NDEBUG 0
 
@@ -138,7 +140,7 @@ SurfaceTexture::SurfaceTexture(GLuint tex, bool allowSynchronousMode,
     mUseFenceSync(false),
 #endif
     mTexTarget(texTarget),
-    mFrameCounter(0) {
+    mFrameCounter(0), mFrameLost(0), mIsRecreated(0) {
     // Choose a name using the PID and a process-unique ID.
     mName = String8::format("unnamed-%d-%d", getpid(), createProcessUniqueId());
 
@@ -236,6 +238,7 @@ status_t SurfaceTexture::setBufferCount(int bufferCount) {
     mBufferCount = bufferCount;
     mClientBufferCount = bufferCount;
     mCurrentTexture = INVALID_BUFFER_SLOT;
+    mFrameLost = 0;
     mQueue.clear();
     mDequeueCondition.signal();
     return OK;
@@ -293,6 +296,7 @@ status_t SurfaceTexture::dequeueBuffer(int *outBuf, uint32_t w, uint32_t h,
         int foundSync = -1;
         int dequeuedCount = 0;
         bool tryAgain = true;
+        mIsRecreated = 0;
         while (tryAgain) {
             if (mAbandoned) {
                 ST_LOGE("dequeueBuffer: SurfaceTexture has been abandoned!");
@@ -396,10 +400,10 @@ status_t SurfaceTexture::dequeueBuffer(int *outBuf, uint32_t w, uint32_t h,
                 // than allowed.
                 const int avail = mBufferCount - (dequeuedCount+1);
                 if (avail < (MIN_UNDEQUEUED_BUFFERS-int(mSynchronousMode))) {
-                    ST_LOGE("dequeueBuffer: MIN_UNDEQUEUED_BUFFERS=%d exceeded "
+                /*    ST_LOGE("dequeueBuffer: MIN_UNDEQUEUED_BUFFERS=%d exceeded "
                             "(dequeued=%d)",
                             MIN_UNDEQUEUED_BUFFERS-int(mSynchronousMode),
-                            dequeuedCount);
+                            dequeuedCount);*/
                     return -EBUSY;
                 }
             }
@@ -547,6 +551,11 @@ status_t SurfaceTexture::queueBuffer(int buf, int64_t timestamp,
             ST_LOGE("queueBuffer: SurfaceTexture has been abandoned!");
             return NO_INIT;
         }
+        if(mIsRecreated) {
+            ST_LOGW("queueBuffer: opengl context is freed and require dequeue buffer first");
+            return 0;
+        }
+
         if (buf < 0 || buf >= mBufferCount) {
             ST_LOGE("queueBuffer: slot index out of range [0, %d]: %d",
                     mBufferCount, buf);
@@ -586,6 +595,7 @@ status_t SurfaceTexture::queueBuffer(int buf, int64_t timestamp,
                 mSlots[*front].mBufferState = BufferSlot::FREE;
                 // and we record the new buffer index in the queued list
                 *front = buf;
+                mFrameLost ++;
             }
         }
 
@@ -760,43 +770,43 @@ status_t SurfaceTexture::updateTexImage() {
     if (!mQueue.empty()) {
         Fifo::iterator front(mQueue.begin());
         int buf = *front;
-
         // Update the GL texture object.
         EGLImageKHR image = mSlots[buf].mEglImage;
+        if (mSlots[buf].mGraphicBuffer == 0) {
+             ST_LOGE("buffer at slot %d is null", buf);
+             return BAD_VALUE;
+        }
         EGLDisplay dpy = eglGetCurrentDisplay();
-        if (image == EGL_NO_IMAGE_KHR) {
-            if (mSlots[buf].mGraphicBuffer == 0) {
-                ST_LOGE("buffer at slot %d is null", buf);
-                return BAD_VALUE;
+        if(!(mSlots[buf].mGraphicBuffer->getUsage() & GRALLOC_USAGE_EXTERNAL_DISP)) {
+           if (image == EGL_NO_IMAGE_KHR) {
+                image = createImage(dpy, mSlots[buf].mGraphicBuffer);
+                mSlots[buf].mEglImage = image;
+                mSlots[buf].mEglDisplay = dpy;
+                if (image == EGL_NO_IMAGE_KHR) {
+                    // NOTE: if dpy was invalid, createImage() is guaranteed to
+                    // fail. so we'd end up here.
+                    return -EINVAL;
+                }
             }
-            image = createImage(dpy, mSlots[buf].mGraphicBuffer);
-            mSlots[buf].mEglImage = image;
-            mSlots[buf].mEglDisplay = dpy;
-            if (image == EGL_NO_IMAGE_KHR) {
-                // NOTE: if dpy was invalid, createImage() is guaranteed to
-                // fail. so we'd end up here.
+    
+            GLint error;
+            while ((error = glGetError()) != GL_NO_ERROR) {
+                ST_LOGW("updateTexImage: clearing GL error: %#04x", error);
+            }
+    
+            glBindTexture(mTexTarget, mTexName);
+            glEGLImageTargetTexture2DOES(mTexTarget, (GLeglImageOES)image);
+    
+            bool failed = false;
+            while ((error = glGetError()) != GL_NO_ERROR) {
+                ST_LOGE("error binding external texture image %p (slot %d): %#04x",
+                        image, buf, error);
+                failed = true;
+            }
+            if (failed) {
                 return -EINVAL;
             }
         }
-
-        GLint error;
-        while ((error = glGetError()) != GL_NO_ERROR) {
-            ST_LOGW("updateTexImage: clearing GL error: %#04x", error);
-        }
-
-        glBindTexture(mTexTarget, mTexName);
-        glEGLImageTargetTexture2DOES(mTexTarget, (GLeglImageOES)image);
-
-        bool failed = false;
-        while ((error = glGetError()) != GL_NO_ERROR) {
-            ST_LOGE("error binding external texture image %p (slot %d): %#04x",
-                    image, buf, error);
-            failed = true;
-        }
-        if (failed) {
-            return -EINVAL;
-        }
-
         if (mCurrentTexture != INVALID_BUFFER_SLOT) {
             if (mUseFenceSync) {
                 EGLSyncKHR fence = eglCreateSyncKHR(dpy, EGL_SYNC_FENCE_KHR,
@@ -855,6 +865,8 @@ bool SurfaceTexture::isExternalFormat(uint32_t format)
     case HAL_PIXEL_FORMAT_YCbCr_422_SP:
     case HAL_PIXEL_FORMAT_YCrCb_420_SP:
     case HAL_PIXEL_FORMAT_YCbCr_422_I:
+    case HAL_PIXEL_FORMAT_YCbCr_420_SP:
+    case HAL_PIXEL_FORMAT_YCbCr_420_I:
         return true;
     }
 
@@ -1106,11 +1118,31 @@ int SurfaceTexture::query(int what, int* outValue)
         value = mSynchronousMode ?
                 (MIN_UNDEQUEUED_BUFFERS-1) : MIN_UNDEQUEUED_BUFFERS;
         break;
+    case NATIVE_WINDOW_GET_FRAME_LOST:
+        *outValue = mFrameLost;
+        return NO_ERROR;
     default:
         return BAD_VALUE;
     }
     outValue[0] = value;
     return NO_ERROR;
+}
+
+void SurfaceTexture::setOpenglContext(GLuint texName)
+{
+    Mutex::Autolock lock(mMutex);
+
+    mTexName = texName;
+}
+
+void SurfaceTexture::destroyOpenglContext()
+{
+    Mutex::Autolock lock(mMutex);
+    mIsRecreated = 1;
+    mQueue.clear();
+    mCurrentTextureBuf.clear();
+    freeAllBuffersLocked();
+    mDequeueCondition.signal();
 }
 
 void SurfaceTexture::abandon() {

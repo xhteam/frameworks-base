@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* Copyright 2009-2011 Freescale Semiconductor Inc. */
 
 //#define LOG_NDEBUG 0
 #define LOG_TAG "CameraSource"
@@ -522,11 +523,11 @@ status_t CameraSource::initWithCameraAccess(
     // By default, do not store metadata in video buffers
     mIsMetaDataStoredInVideoBuffers = false;
     mCamera->storeMetaDataInBuffers(false);
-    if (storeMetaDataInVideoBuffers) {
-        if (OK == mCamera->storeMetaDataInBuffers(true)) {
-            mIsMetaDataStoredInVideoBuffers = true;
-        }
-    }
+    //if (storeMetaDataInVideoBuffers) {
+      //  if (OK == mCamera->storeMetaDataInBuffers(true)) {
+        //    mIsMetaDataStoredInVideoBuffers = true;
+        //}
+    //}
 
     int64_t glitchDurationUs = (1000000LL / mVideoFrameRate);
     if (glitchDurationUs > mGlitchDurationThresholdUs) {

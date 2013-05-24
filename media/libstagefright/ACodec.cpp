@@ -379,6 +379,14 @@ status_t ACodec::allocateBuffersOnPort(OMX_U32 portIndex) {
             mComponentName.c_str(),
             def.nBufferCountActual, def.nBufferSize,
             portIndex == kPortIndexInput ? "input" : "output");
+    //multiple input buffers to increase performance
+    def.nBufferCountActual = 6;
+    err = mOMX->setParameter(
+            mNode, OMX_IndexParamPortDefinition, &def, sizeof(def));
+    if (err != OK) {
+        return err;
+    }
+	
 
     size_t totalSize = def.nBufferCountActual * def.nBufferSize;
     mDealer[portIndex] = new MemoryDealer(totalSize, "OMXCodec");
@@ -438,11 +446,30 @@ status_t ACodec::allocateOutputBuffersFromNativeWindow() {
         return err;
     }
 
+    int color_fmt = HAL_PIXEL_FORMAT_YCbCr_420_SP;
+    switch(def.format.video.eColorFormat) {
+        case OMX_COLOR_FormatYUV420SemiPlanar:
+            color_fmt = HAL_PIXEL_FORMAT_YCbCr_420_SP;
+            break;
+        case OMX_COLOR_FormatYUV420Planar:
+            color_fmt = HAL_PIXEL_FORMAT_YCbCr_420_P;
+            break;
+        case OMX_COLOR_Format16bitRGB565:
+            color_fmt = HAL_PIXEL_FORMAT_RGB_565;
+            break;
+        case OMX_COLOR_FormatYUV422Planar:
+            color_fmt = HAL_PIXEL_FORMAT_YCbCr_422_P;
+            break;
+        default:
+            LOGE("Not supported color format %d by surface!");
+            return UNKNOWN_ERROR;
+    }
+
     err = native_window_set_buffers_geometry(
             mNativeWindow.get(),
             def.format.video.nFrameWidth,
             def.format.video.nFrameHeight,
-            def.format.video.eColorFormat);
+            color_fmt);
 
     if (err != 0) {
         LOGE("native_window_set_buffers_geometry failed: %s (%d)",
@@ -461,27 +488,20 @@ status_t ACodec::allocateOutputBuffersFromNativeWindow() {
 
     err = native_window_set_usage(
             mNativeWindow.get(),
-            usage | GRALLOC_USAGE_HW_TEXTURE | GRALLOC_USAGE_EXTERNAL_DISP);
+            GRALLOC_USAGE_SW_READ_NEVER | GRALLOC_USAGE_FORCE_CONTIGUOUS | GRALLOC_USAGE_HW_TEXTURE);
 
     if (err != 0) {
         LOGE("native_window_set_usage failed: %s (%d)", strerror(-err), -err);
         return err;
     }
 
+	// need to query, fixed to 2, cannot cancel these two buffers, omx vpu decoding will stall.
     int minUndequeuedBufs = 0;
-    err = mNativeWindow->query(
-            mNativeWindow.get(), NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS,
-            &minUndequeuedBufs);
-
-    if (err != 0) {
-        LOGE("NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS query failed: %s (%d)",
-                strerror(-err), -err);
-        return err;
-    }
 
     // XXX: Is this the right logic to use?  It's not clear to me what the OMX
     // buffer counts refer to - how do they account for the renderer holding on
     // to buffers?
+    //minUndequeuedBufs = 0;
     if (def.nBufferCountActual < def.nBufferCountMin + minUndequeuedBufs) {
         OMX_U32 newBufferCount = def.nBufferCountMin + minUndequeuedBufs;
         def.nBufferCountActual = newBufferCount;
@@ -1308,8 +1328,17 @@ bool ACodec::BaseState::onOMXMessage(const sp<AMessage> &msg) {
                 // implementations. We'll drop this notification and rely
                 // on flush-complete notifications on the individual port
                 // indices instead.
-
-                return true;
+                //fsl omx only sends back OMX_ALL event for flush compete cmd, not for each individual port
+                //we need to process this event to exit successfully, otherwise, after one video clip, player is dead
+                if(strncmp(mCodec->mComponentName.c_str(), "OMX.Freescale", 11) == 0)
+                {
+                    return onOMXEvent(
+                                static_cast<OMX_EVENTTYPE>(event),
+                                static_cast<OMX_U32>(data1),
+                                static_cast<OMX_U32>(data2));
+                }
+                else
+                    return true;
             }
 
             return onOMXEvent(
@@ -2455,8 +2484,12 @@ bool ACodec::FlushingState::onOMXEvent(
                 }
             } else {
                 CHECK_EQ(data2, OMX_ALL);
-                CHECK(mFlushComplete[kPortIndexInput]);
-                CHECK(mFlushComplete[kPortIndexOutput]);
+                //CHECK(mFlushComplete[kPortIndexInput]);
+                //CHECK(mFlushComplete[kPortIndexOutput]);
+                //omx only send OMX_ALL event for flush complete cmd, not each for individual ports
+                //to exit successfully, set both flags true here
+                mFlushComplete[kPortIndexInput] =true;
+                mFlushComplete[kPortIndexOutput]= true;
 
                 changeStateIfWeOwnAllBuffers();
             }

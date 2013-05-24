@@ -13,6 +13,7 @@
  ** See the License for the specific language governing permissions and 
  ** limitations under the License.
  */
+/* Copyright 2009-2012 Freescale Semiconductor Inc. */
 
 #include <string.h>
 
@@ -51,6 +52,8 @@ static char const * const sExtensionString  =
         "EGL_KHR_fence_sync "
         "EGL_NV_system_time "
         "EGL_ANDROID_image_native_buffer "      // mandatory
+        "EGL_ANDROID_swap_rectangle "
+        "EGL_ANDROID_get_render_buffer "
         ;
 
 // extensions not exposed to applications but used by the ANDROID system
@@ -182,6 +185,16 @@ EGLBoolean egl_display_t::initialize(EGLint *major, EGLint *minor) {
         }
 #endif
 
+#if defined(IMX5X)
+#warning "imx5x eglInitialize() workaround"
+        /*
+         * same workaround should be applied to imx5x Z430 EGL as ADRENO130
+         */
+        if (i == IMPL_HARDWARE) {
+            disp[i].dpy =
+               cnx->egl.eglGetDisplay(EGL_DEFAULT_DISPLAY);
+        }
+#endif
         EGLDisplay idpy = disp[i].dpy;
         if (cnx->egl.eglInitialize(idpy, &cnx->major, &cnx->minor)) {
             //LOGD("initialized %d dpy=%p, ver=%d.%d, cnx=%p",

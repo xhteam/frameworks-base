@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* Copyright 2009-2011 Freescale Semiconductor Inc. */
 
 package android.service.wallpaper;
 
@@ -790,7 +791,7 @@ public abstract class WallpaperService extends Service {
                         // may have been destroyed so now we need to make
                         // sure it is re-created.
                         doOffsetsChanged(false);
-                        updateSurface(false, false, false);
+                        updateSurface(true, true, true);
                     }
                     onVisibilityChanged(visible);
                 }

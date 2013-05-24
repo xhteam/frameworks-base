@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+/* Copyright (C) 2011-2012 Freescale Semiconductor, Inc. */
+
 #ifndef ANDROID_FRAMEBUFFER_NATIVE_WINDOW_H
 #define ANDROID_FRAMEBUFFER_NATIVE_WINDOW_H
 
@@ -29,10 +31,12 @@
 #include <pixelflinger/pixelflinger.h>
 
 #include <ui/egl/android_natives.h>
+#include <hardware/gralloc.h>
 
 #define NUM_FRAME_BUFFERS  2
 
 extern "C" EGLNativeWindowType android_createDisplaySurface(void);
+struct configParam;
 
 // ---------------------------------------------------------------------------
 namespace android {
@@ -56,12 +60,22 @@ public:
 
     bool isUpdateOnDemand() const { return mUpdateOnDemand; }
     status_t setUpdateRectangle(const Rect& updateRect);
+#ifdef FSL_IMX_DISPLAY
+    status_t setSecRotation(int secRotation);
+#endif
     status_t compositionComplete();
 
     void dump(String8& result);
 
     // for debugging only
     int getCurrentBufferIndex() const;
+
+public:
+    FramebufferNativeWindow(const configParam& param);
+    int sendCommand(int operateCode, const configParam& param);
+
+private:
+    gralloc_module_t *mAllocMod;
 
 private:
     friend class LightRefBase<FramebufferNativeWindow>;    
@@ -76,7 +90,7 @@ private:
     framebuffer_device_t* fbDev;
     alloc_device_t* grDev;
 
-    sp<NativeBuffer> buffers[NUM_FRAME_BUFFERS];
+    sp<NativeBuffer> buffers[3];
     sp<NativeBuffer> front;
     
     mutable Mutex mutex;

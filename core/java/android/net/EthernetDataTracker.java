@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2010 The Android Open Source Project
+ * Copyright 2010-2012 Freescale Semiconductor, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +25,7 @@ import android.os.INetworkManagementService;
 import android.os.Message;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.os.SystemProperties;
 import android.util.Log;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -45,6 +47,7 @@ public class EthernetDataTracker implements NetworkStateTracker {
     private AtomicBoolean mDefaultRouteSet = new AtomicBoolean(false);
 
     private static boolean mLinkUp;
+    private static boolean mClearIp;
     private LinkProperties mLinkProperties;
     private LinkCapabilities mLinkCapabilities;
     private NetworkInfo mNetworkInfo;
@@ -74,16 +77,15 @@ public class EthernetDataTracker implements NetworkStateTracker {
             if (mIface.equals(iface) && mLinkUp != up) {
                 Log.d(TAG, "Interface " + iface + " link " + (up ? "up" : "down"));
                 mLinkUp = up;
+                mTracker.mNetworkInfo.setIsAvailable(up);
+                mClearIp = (SystemProperties.get("ethernet.clear.ip", "yes")).equals("yes");
 
                 // use DHCP
                 if (up) {
                     mTracker.reconnect();
                 } else {
-                    NetworkUtils.stopDhcp(mIface);
-                    mTracker.mNetworkInfo.setIsAvailable(false);
-                    mTracker.mNetworkInfo.setDetailedState(DetailedState.DISCONNECTED,
-                                                           null, null);
-                }
+                    mTracker.disconnect();
+		}
             }
         }
 
@@ -129,11 +131,7 @@ public class EthernetDataTracker implements NetworkStateTracker {
         runDhcp();
     }
 
-    private void interfaceRemoved(String iface) {
-        if (!iface.equals(mIface))
-            return;
-
-        Log.d(TAG, "Removing " + iface);
+    private void disconnect() {
 
         NetworkUtils.stopDhcp(mIface);
 
@@ -146,7 +144,23 @@ public class EthernetDataTracker implements NetworkStateTracker {
 
         msg = mCsHandler.obtainMessage(EVENT_STATE_CHANGED, mNetworkInfo);
         msg.sendToTarget();
+	if (mClearIp){
+	    IBinder b = ServiceManager.getService(Context.NETWORKMANAGEMENT_SERVICE);
+	    INetworkManagementService service = INetworkManagementService.Stub.asInterface(b);
+	    try {
+                service.clearInterfaceAddresses(mIface);
+	    } catch (Exception e) {
+		Log.e(TAG, "Failed to clear addresses or disable ip" + e);
+	    }
+	}
+    }
 
+    private void interfaceRemoved(String iface) {
+	if (!iface.equals(mIface))
+            return;
+
+        Log.d(TAG, "Removing " + iface);
+	disconnect();
         mIface = "";
     }
 

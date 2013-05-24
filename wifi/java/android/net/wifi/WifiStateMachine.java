@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+/* Copyright 2012 Freescale Semiconductor Inc. */
 
 package android.net.wifi;
 
@@ -110,7 +111,7 @@ public class WifiStateMachine extends StateMachine {
     private static final boolean DBG = false;
 
     /* TODO: This is no more used with the hostapd code. Clean up */
-    private static final String SOFTAP_IFACE = "wl0.1";
+    private static final String SOFTAP_IFACE = "wlan0";
 
     private WifiMonitor mWifiMonitor;
     private INetworkManagementService mNwService;
@@ -2198,6 +2199,7 @@ public class WifiStateMachine extends StateMachine {
             switch(message.what) {
                 case WifiMonitor.SUP_CONNECTION_EVENT:
                     if (DBG) log("Supplicant connection established");
+                    WifiNative.setP2pDisable(1);
                     setWifiState(WIFI_STATE_ENABLED);
                     mSupplicantRestartCount = 0;
                     /* Reset the supplicant state to indicate the supplicant
@@ -2860,6 +2862,7 @@ public class WifiStateMachine extends StateMachine {
 
                     //TODO: make supplicant modification to push this in events
                     mWifiInfo.setSSID(fetchSSID());
+                    fetchRssiAndLinkSpeedNative();
                     mWifiInfo.setBSSID(mLastBssid);
                     mWifiInfo.setNetworkId(mLastNetworkId);
                     if (mNextWifiActionExplicit &&

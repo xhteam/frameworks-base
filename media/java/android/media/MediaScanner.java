@@ -54,6 +54,8 @@ import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import android.os.SystemProperties;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -469,7 +471,6 @@ public class MediaScanner
                     mFileType = getFileTypeFromDrm(path);
                 }
             }
-
             String key = path;
             if (mCaseInsensitivePaths) {
                 key = path.toLowerCase();
@@ -525,6 +526,36 @@ public class MediaScanner
             doScanFile(path, null, lastModified, fileSize, isDirectory, false, noMedia);
         }
 
+
+        private boolean isMetadataSupported(int fileType) {
+            if (mFileType == MediaFile.FILE_TYPE_MP3 ||
+                    mFileType == MediaFile.FILE_TYPE_MP4 ||
+                    mFileType == MediaFile.FILE_TYPE_MOV ||
+                    mFileType == MediaFile.FILE_TYPE_M4A ||
+                    mFileType == MediaFile.FILE_TYPE_3GPP ||
+                    mFileType == MediaFile.FILE_TYPE_3GPP2 ||
+                    mFileType == MediaFile.FILE_TYPE_OGG ||
+                    mFileType == MediaFile.FILE_TYPE_AAC ||
+                    mFileType == MediaFile.FILE_TYPE_WAV ||
+                    mFileType == MediaFile.FILE_TYPE_MID ||
+                    mFileType == MediaFile.FILE_TYPE_WMA ||
+                    mFileType == MediaFile.FILE_TYPE_AVI ||
+                    mFileType == MediaFile.FILE_TYPE_FLAC ||
+                    mFileType == MediaFile.FILE_TYPE_MKA ||
+                    mFileType == MediaFile.FILE_TYPE_MKV ||
+                    mFileType == MediaFile.FILE_TYPE_FLV ||
+                    mFileType == MediaFile.FILE_TYPE_RMV ||
+                    mFileType == MediaFile.FILE_TYPE_RMA ||
+                    mFileType == MediaFile.FILE_TYPE_ASF ||
+                    mFileType == MediaFile.FILE_TYPE_MPG2 ||
+                    mFileType == MediaFile.FILE_TYPE_WMV ) {
+                // we only extract metadata from MP3, M4A, OGG, MID, AAC and WMA files.
+                // check MP4 files, to determine if they contain only audio.
+                return true;
+            }
+            return false;
+        }
+
         public Uri doScanFile(String path, String mimeType, long lastModified,
                 long fileSize, boolean isDirectory, boolean scanAlways, boolean noMedia) {
             Uri result = null;
@@ -545,10 +576,10 @@ public class MediaScanner
                         boolean music = (lowpath.indexOf(MUSIC_DIR) > 0) ||
                             (!ringtones && !notifications && !alarms && !podcasts);
 
-                        // we only extract metadata for audio and video files
-                        if (MediaFile.isAudioFileType(mFileType)
-                                || MediaFile.isVideoFileType(mFileType)) {
+                        if( isMetadataSupported(mFileType) ) {
                             processFile(path, mimeType, this);
+                        } else if (MediaFile.isImageFileType(mFileType)) {
+                            // we used to compute the width and height but it's not worth it
                         }
 
                         if (MediaFile.isImageFileType(mFileType)) {
@@ -910,6 +941,7 @@ public class MediaScanner
                 }
             }
 
+            Log.v(TAG, "isVideoFileType... " + result);
             return result;
         }
 
@@ -1123,8 +1155,14 @@ public class MediaScanner
                 // instead, clear the path and lastModified fields in the row
                 MediaFile.MediaFileType mediaFileType = MediaFile.getFileType(path);
                 int fileType = (mediaFileType == null ? 0 : mediaFileType.fileType);
-
-                if (!MediaFile.isPlayListFileType(fileType)) {
+               
+                if (MediaFile.isPlayListFileType(fileType)) {
+                    values = new ContentValues();
+                    values.put(MediaStore.Audio.Playlists.DATA, "");
+                    values.put(MediaStore.Audio.Playlists.DATE_MODIFIED, 0);
+                    mMediaProvider.update(ContentUris.withAppendedId(mPlaylistsUri, entry.mRowId),
+                            values, null, null);
+                } else {
                     mMediaProvider.delete(ContentUris.withAppendedId(mFilesUri, entry.mRowId),
                             null, null);
                     iterator.remove();
@@ -1177,6 +1215,7 @@ public class MediaScanner
                 mMediaInserter = new MediaInserter(mMediaProvider, 500);
             }
 
+            Log.i(TAG, "scanDirectories start"+directories[0]);
             for (int i = 0; i < directories.length; i++) {
                 processDirectory(directories[i], mClient);
             }

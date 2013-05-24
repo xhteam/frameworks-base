@@ -34,6 +34,7 @@ namespace android {
 class Parcel;
 class Surface;
 class ISurfaceTexture;
+class VideoFrame;
 
 template<typename T> class SortedVector;
 
@@ -46,6 +47,8 @@ enum player_type {
     // The shared library with the test player is passed passed as an
     // argument to the 'test:' url in the setDataSource call.
     TEST_PLAYER = 5,
+    OMX_PLAYER = 6,
+    OMX_FAST_PLAYER = 7,
 };
 
 
@@ -156,6 +159,13 @@ public:
                                     Parcel *records) {
         return INVALID_OPERATION;
     };
+    virtual status_t    captureCurrentFrame(VideoFrame** pvframe) = 0;
+    virtual status_t    setVideoCrop(int top,int left, int bottom, int right) = 0;
+    virtual int         getTrackCount() = 0;
+    virtual char*       getTrackName(int index) = 0;
+    virtual int         getDefaultTrack() = 0;
+    virtual status_t    selectTrack(int index) = 0;
+    virtual status_t    setPlaySpeed(int speed) = 0;
 
     void        setNotifyCallback(
             void* cookie, notify_callback_f notifyFunc) {
@@ -188,6 +198,13 @@ public:
     virtual             ~MediaPlayerInterface() { }
     virtual bool        hardwareOutput() { return false; }
     virtual void        setAudioSink(const sp<AudioSink>& audioSink) { mAudioSink = audioSink; }
+    virtual status_t    captureCurrentFrame(VideoFrame** pvframe){return 0;}
+    virtual status_t    setVideoCrop(int top,int left, int bottom, int right){return 0;}
+    virtual int         getTrackCount() {return 0;}
+    virtual char*       getTrackName(int index) {return NULL;}
+    virtual int         getDefaultTrack() {return 0;}
+    virtual status_t    selectTrack(int index) {return INVALID_OPERATION;}
+    virtual status_t    setPlaySpeed(int speed) {return INVALID_OPERATION;}
 protected:
     sp<AudioSink>       mAudioSink;
 };
