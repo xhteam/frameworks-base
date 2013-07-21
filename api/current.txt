@@ -13763,15 +13763,20 @@ package android.nfc {
   }
 
   public final class NfcAdapter {
+    method public void activeSwp() throws java.io.IOException;
+    method public void deSelectedSecureElement() throws java.io.IOException;
     method public void disableForegroundDispatch(android.app.Activity);
     method public deprecated void disableForegroundNdefPush(android.app.Activity);
     method public void enableForegroundDispatch(android.app.Activity, android.app.PendingIntent, android.content.IntentFilter[], java.lang.String[][]);
     method public deprecated void enableForegroundNdefPush(android.app.Activity, android.nfc.NdefMessage);
     method public static android.nfc.NfcAdapter getDefaultAdapter(android.content.Context);
+    method public java.lang.String getDefaultSelectedSecureElement() throws java.io.IOException;
     method public boolean isEnabled();
     method public boolean isNdefPushEnabled();
+    method public void selectDefaultSecureElement(java.lang.String) throws java.io.IOException;
     method public void setBeamPushUris(android.net.Uri[], android.app.Activity);
     method public void setBeamPushUrisCallback(android.nfc.NfcAdapter.CreateBeamUrisCallback, android.app.Activity);
+    method public void setDefaultSecureElementState(boolean) throws java.io.IOException;
     method public void setNdefPushMessage(android.nfc.NdefMessage, android.app.Activity, android.app.Activity...);
     method public void setNdefPushMessageCallback(android.nfc.NfcAdapter.CreateNdefMessageCallback, android.app.Activity, android.app.Activity...);
     method public void setOnNdefPushCompleteCallback(android.nfc.NfcAdapter.OnNdefPushCompleteCallback, android.app.Activity, android.app.Activity...);
@@ -13781,6 +13786,8 @@ package android.nfc {
     field public static final java.lang.String EXTRA_ID = "android.nfc.extra.ID";
     field public static final java.lang.String EXTRA_NDEF_MESSAGES = "android.nfc.extra.NDEF_MESSAGES";
     field public static final java.lang.String EXTRA_TAG = "android.nfc.extra.TAG";
+    field public static final java.lang.String SMART_MX_ID = "com.nxp.smart_mx.ID";
+    field public static final java.lang.String UICC_ID = "com.nxp.uicc.ID";
   }
 
   public static abstract interface NfcAdapter.CreateBeamUrisCallback {
@@ -13801,6 +13808,14 @@ package android.nfc {
 
   public final class NfcManager {
     method public android.nfc.NfcAdapter getDefaultAdapter();
+  }
+
+  public final class NfcSecureElement {
+    method public void closeSecureElementConnection(int) throws java.io.IOException;
+    method public byte[] exchangeAPDU(int, byte[]) throws java.io.IOException;
+    method public int[] getSecureElementTechList(int) throws java.io.IOException;
+    method public byte[] getSecureElementUid(int) throws java.io.IOException;
+    method public int openSecureElementConnection(java.lang.String) throws java.io.IOException;
   }
 
   public final class Tag implements android.os.Parcelable {
