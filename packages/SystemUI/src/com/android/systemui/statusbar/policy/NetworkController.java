@@ -1020,7 +1020,7 @@ public class NetworkController extends BroadcastReceiver {
             // is connected, we show nothing.
             // Otherwise (nothing connected) we show "No internet connection".
 
-            if (mDataConnected) {
+            /*if (mDataConnected) {
                 mobileLabel = mNetworkName;
             } else if (mConnected || emergencyOnly) {
                 if (hasService() || emergencyOnly) {
@@ -1033,7 +1033,14 @@ public class NetworkController extends BroadcastReceiver {
             } else {
                 mobileLabel
                     = context.getString(R.string.status_bar_settings_signal_meter_disconnected);
-            }
+            }*/
+			
+			// John(10/28/2013), the mobileLabel display network name anytime
+			if (hasService() || emergencyOnly) {
+				mobileLabel = mNetworkName;
+			} else {
+				mobileLabel = "";
+			}
 
             // Now for things that should only be shown when actually using mobile data.
             if (mDataConnected) {
