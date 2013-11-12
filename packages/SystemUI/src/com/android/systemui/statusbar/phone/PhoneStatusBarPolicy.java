@@ -132,6 +132,10 @@ public class PhoneStatusBarPolicy {
             else if (action.equals(TtyIntent.TTY_ENABLED_CHANGE_ACTION)) {
                 updateTTY(intent);
             }
+			/* Add by John. 11/11/2013 */
+			else if (action.equals(Intent.ACTION_HEADSET_PLUG)) {
+                updateHeadset(intent);
+            }
         }
     };
 
@@ -148,6 +152,8 @@ public class PhoneStatusBarPolicy {
         filter.addAction(BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED);
         filter.addAction(TelephonyIntents.ACTION_SIM_STATE_CHANGED);
         filter.addAction(TtyIntent.TTY_ENABLED_CHANGE_ACTION);
+		/* Add by John. 11/11/2013 */
+		filter.addAction(Intent.ACTION_HEADSET_PLUG); 
         mContext.registerReceiver(mIntentReceiver, filter, null, mHandler);
 
         // storage
@@ -175,6 +181,10 @@ public class PhoneStatusBarPolicy {
         mService.setIcon("bluetooth", bluetoothIcon, 0, null);
         mService.setIconVisibility("bluetooth", mBluetoothEnabled);
 
+		// Headset (Add by John. 11/11/2013)
+		mService.setIcon("headset", com.android.internal.R.drawable.stat_sys_headset, 0, null);
+        mService.setIconVisibility("headset", false);
+
         // Alarm clock
         mService.setIcon("alarm_clock", R.drawable.stat_sys_alarm, 0, null);
         mService.setIconVisibility("alarm_clock", false);
@@ -190,6 +200,12 @@ public class PhoneStatusBarPolicy {
         mService.setIconVisibility("volume", false);
         updateVolume();
     }
+
+	/* Add by John. 11/11/2013 */
+	private final void updateHeadset(Intent intent) {
+		boolean headsetState = intent.getIntExtra("state", 0) == 1;
+		mService.setIconVisibility("headset", headsetState);
+	}
 
     private final void updateAlarm(Intent intent) {
         boolean alarmSet = intent.getBooleanExtra("alarmSet", false);
