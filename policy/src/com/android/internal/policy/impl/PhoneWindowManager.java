@@ -3626,15 +3626,15 @@ public class PhoneWindowManager implements WindowManagerPolicy {
 			/**** John. 2013/9/18 ****/
 			case KeyEvent.KEYCODE_F1:
 				if (down) {
-					Intent quester_f1 = new Intent("action.KEYCODE_F1");
-            		mContext.sendBroadcast(quester_f1);
+					//Intent quester_f1 = new Intent("action.KEYCODE_F1");
+            		mContext.sendBroadcastAsUser(new Intent("action.KEYCODE_F1"),UserHandle.ALL);
 				}
 				break;
 				
 			case KeyEvent.KEYCODE_F2:
 				if (down) {
-					Intent quester_f2 = new Intent("action.KEYCODE_F2");
-            		mContext.sendBroadcast(quester_f2);
+					//Intent quester_f2 = new Intent("action.KEYCODE_F2");
+            		mContext.sendBroadcastAsUser(new Intent("action.KEYCODE_F2"),UserHandle.ALL);
 				}
 				break;
 			/**********************/
